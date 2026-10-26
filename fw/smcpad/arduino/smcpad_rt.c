@@ -5,6 +5,7 @@
 #include "asm/gpio.h"
 #include "smcpad_usb_cfg.h"
 #include "smcpad_rt.h"
+#include "smcpad_spin.h"
 #include "tusb.h"
 
 extern void clr_wdt(void);
@@ -30,7 +31,7 @@ void smcpad_reset(void)
     local_irq_disable();
     JL_USB->CON0 = 0;
     JL_USB_IO->CON0 &= ~(BIT(DPPU) | BIT(DMPU) | BIT(DPPD) | BIT(DMPD));
-    for (volatile u32 i = 0; i < 3000000; i++) {
+    for (volatile u32 i = 0; i < SMCPAD_SPIN(3000000u); i++) {
     }
     cpu_reset();
     for (;;) {
@@ -61,9 +62,25 @@ void smcpad_on_touch_1200(void)
 
 /* smcpad_micros(), smcpad_delay_us(): smcpad_hw.c (TIMER3) */
 
+/* Library work that has to go on between loops (smcpad_rt.h: smcpad_yield_hook). */
+static void (*yield_hooks[4])(void);
+
+void smcpad_yield_hook(void (*fn)(void))
+{
+    for (u32 i = 0; i < 4; i++) {
+        if (yield_hooks[i] == fn) {
+            return;
+        }
+        if (!yield_hooks[i]) {
+            yield_hooks[i] = fn;
+            return;
+        }
+    }
+}
+
 void smcpad_yield(void)
 {
-    static u8 boot_confirmed;
+    static u8 boot_confirmed, in_hooks;
 
 #if SMCPAD_TINYUSB
     tud_task();
@@ -74,6 +91,13 @@ void smcpad_yield(void)
     if (!boot_confirmed && smcpad_millis() > BOOT_OK_AFTER_MS) {
         smcpad_boot_ok();
         boot_confirmed = 1;
+    }
+    if (!in_hooks) {                        /* a hook that waits yields too: not again */
+        in_hooks = 1;
+        for (u32 i = 0; i < 4 && yield_hooks[i]; i++) {
+            yield_hooks[i]();
+        }
+        in_hooks = 0;
     }
     clr_wdt();
 }

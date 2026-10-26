@@ -275,7 +275,7 @@ static void testHardware()
   uint32_t r0 = smcpad_pad_rounds();
   delay(1000);
   uint32_t rate = smcpad_pad_rounds() - r0;
-  check("pad scan rate", rate >= 250 && rate <= 450, String(rate) + "/s");
+  check("pad scan rate", rate >= 250 && rate <= 1500, String(rate) + "/s");   // >= 2 rounds in the 9 ms attack
 
   bool any = false;
   for (int pad = 0; pad < SMCPadClass::PADS; pad++) any |= SMCPad.padPressure(pad) > 150;

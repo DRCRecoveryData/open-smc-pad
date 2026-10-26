@@ -27,6 +27,7 @@
 #include "usb/device/usb_stack.h"
 #include "usb_config.h"
 #include "cdc.h"
+#include "smcpad_spin.h"
 
 /* The debug channel is the whole point of this file: if the USB device or the CDC class got
  * configured out, the firmware would ship silent and we would burn a flash cycle to find out. */
@@ -126,7 +127,7 @@ static u32 dbg_write(const char *buf, u32 len)
             idle = 0;
         } else {
             idle++;
-            for (volatile u32 i = 0; i < 4000; i++) {
+            for (volatile u32 i = 0; i < SMCPAD_SPIN(4000u); i++) {
             }
         }
     }

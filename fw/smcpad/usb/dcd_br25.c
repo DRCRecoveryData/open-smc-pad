@@ -26,6 +26,7 @@
 
 #include <string.h>
 #include "device/dcd.h"
+#include "smcpad_spin.h"
 
 /* ------------------------------------------------------------------ registers */
 
@@ -116,7 +117,7 @@
 #define EP_MAX              TUP_DCD_ENDPOINT_MAX        /* EP0..EP4 */
 #define EP0_SIZE            CFG_TUD_ENDPOINT0_SIZE
 #define EP_BUF_SIZE         64                          /* full speed bulk/interrupt */
-#define SIE_SPIN_LIMIT      20000u
+#define SIE_SPIN_LIMIT      SMCPAD_SPIN(20000u)
 
 extern void bit_clr_ie(unsigned char index);
 extern void bit_set_ie(unsigned char index);
@@ -530,7 +531,7 @@ static bool ep_out_take(uint8_t rhport, uint8_t epn, bool is_isr)
      * arrived with just its first byte wrong; treating the event as a 64-byte packet read a
      * stale buffer). Wait for the count; a 64-byte packet takes ~43 us at full speed. A real
      * zero-length packet comes without FIFOFull, or stays at 0 past the bound. */
-    for (uint32_t spin = 0; count == 0 && (csr & RXCSR_FIFOFULL) && spin < 400; spin++) {
+    for (uint32_t spin = 0; count == 0 && (csr & RXCSR_FIFOFULL) && spin < SMCPAD_SPIN(400u); spin++) {
         count = sie_read16(SIE_COUNT0);
     }
     n = count < p->remaining ? count : p->remaining;

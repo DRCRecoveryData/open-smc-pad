@@ -132,6 +132,7 @@ extern "C" {
 uint32_t smcpad_millis(void) { return (uint32_t)(now_us / 1000); }
 uint32_t smcpad_micros(void) { return (uint32_t)now_us; }
 void smcpad_yield(void) { advance(100); }
+void smcpad_yield_hook(void (*)(void)) {}    // the hooks are BLE's: no BLE here
 void smcpad_delay(uint32_t ms)
 {
     uint64_t until = now_us + (uint64_t)ms * 1000;
@@ -246,6 +247,8 @@ void smcpad_ble_address(uint8_t a[6]) { static const uint8_t x[6] = {1, 2, 3, 4,
 void smcpad_ble_central_address(uint8_t a[6]) { memset(a, 0, 6); }
 int smcpad_ble_rssi(void) { return 127; }
 int smcpad_ble_notify(uint16_t, const uint8_t *, uint16_t) { return 0; }
+uint16_t smcpad_ble_queued(void) { return 0; }
+void smcpad_ble_set_conn_interval(uint16_t, uint16_t) {}
 int smcpad_ble_subscribed(uint16_t) { return 0; }
 void smcpad_ble_disconnect(void) {}
 

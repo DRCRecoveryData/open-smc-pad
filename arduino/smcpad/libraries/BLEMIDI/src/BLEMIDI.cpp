@@ -54,8 +54,15 @@ int BLEMIDI_::begin(const char *name)
     BLE.setLocalName(name);
     BLE.setDeviceName(name);
     BLE.setAdvertisedService(_service);
+    BLE.setConnectionInterval(6, 12);       /* 7.5-15 ms, as the BLE-MIDI spec asks */
+    smcpad_yield_hook(yieldHook);
     BLE.advertise();
     return 1;
+}
+
+void BLEMIDI_::yieldHook()
+{
+    BLEMIDI.poll();
 }
 
 bool BLEMIDI_::connected()
@@ -65,21 +72,65 @@ bool BLEMIDI_::connected()
 
 /* ------------------------------------------------------------------ outgoing */
 
+/* The waiting packet to the stack. Waits only if the stack's queue has no room at all. */
+bool BLEMIDI_::sendPacket()
+{
+    bool ok;
+
+    _sending = true;                                /* writeValue may yield: no poll() inside */
+    ok = _io.writeValue(_tx, _txLen);
+    _sending = false;
+    _txLen = 0;
+    return ok;
+}
+
+void BLEMIDI_::poll()
+{
+    if (!_txLen || _sending) {
+        return;
+    }
+    if (!_io.subscribed()) {
+        _txLen = 0;                                 /* nobody listens any more */
+    } else if (smcpad_ble_queued() == 0) {
+        sendPacket();
+    }
+}
+
+/* Packet: header (1, timestamp bits 12..7), then per message timestamp low (1, bits 6..0),
+ * status, data. A low part smaller than the previous one tells the host the high part went up
+ * by one: so a packet spans less than 128 ms. */
 bool BLEMIDI_::send(uint8_t status, uint8_t data1, uint8_t data2)
 {
-    uint8_t pkt[5];
-    uint32_t ts = millis() & 0x1FFF;
+    uint16_t ts = millis() & 0x1FFF;
     int n = midi_length(status);
+    int room = smcpad_ble_mtu() - 3;
 
     if (!(status & 0x80) || status == 0xF0 || status == 0xF7) {
         return false;                               /* not a status, or SysEx */
     }
-    pkt[0] = 0x80 | (ts >> 7);                      /* header: timestamp high */
-    pkt[1] = 0x80 | (ts & 0x7F);                    /* timestamp low */
-    pkt[2] = status;
-    pkt[3] = data1 & 0x7F;
-    pkt[4] = data2 & 0x7F;
-    return _io.subscribed() && _io.writeValue(pkt, 2 + n);
+    if (!_io.subscribed() || _sending) {
+        return false;
+    }
+    if (room > PACKET_MAX) {
+        room = PACKET_MAX;
+    }
+    if (_txLen && (_txLen + 1 + n > room || ((ts - _txFirst) & 0x1FFF) >= 128)) {
+        sendPacket();                               /* full (or old): out now, queue or not */
+    }
+    if (!_txLen) {
+        _tx[_txLen++] = 0x80 | (ts >> 7);
+        _txFirst = ts;
+    }
+    _tx[_txLen++] = 0x80 | (ts & 0x7F);
+    _tx[_txLen++] = status;
+    if (n > 1) {
+        _tx[_txLen++] = data1 & 0x7F;
+    }
+    if (n > 2) {
+        _tx[_txLen++] = data2 & 0x7F;
+    }
+    poll();                                         /* the radio is free: at once */
+    return true;
 }
 
 void BLEMIDI_::sendMIDI(midiEventPacket_t event)

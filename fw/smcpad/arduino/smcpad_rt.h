@@ -21,6 +21,9 @@ void smcpad_delay_us(uint32_t us);
 /* Services USB, the 1200-baud touch and the bootloader's crash-loop counter. loop() is
  * followed by it; long loops in a sketch should call it (smcpad_delay() does). */
 void smcpad_yield(void);
+/* fn is then called by every smcpad_yield() (after each loop(), in delay()...): for libraries
+ * with work to finish between calls, as BLEMIDI's sending. Up to 4; keep it short. */
+void smcpad_yield_hook(void (*fn)(void));
 
 /* USB CDC serial (TinyUSB) */
 int smcpad_serial_connected(void);
@@ -129,6 +132,8 @@ void smcpad_ble_address(uint8_t addr[6]);           /* little-endian, as on air 
 void smcpad_ble_central_address(uint8_t addr[6]);
 int smcpad_ble_rssi(void);                          /* 127 when not connected */
 int smcpad_ble_notify(uint16_t handle, const uint8_t *data, uint16_t len);   /* 1 when sent */
+uint16_t smcpad_ble_queued(void);                   /* bytes not yet handed to the radio */
+void smcpad_ble_set_conn_interval(uint16_t min, uint16_t max);  /* 1.25 ms; asked on subscribe */
 int smcpad_ble_subscribed(uint16_t handle);         /* the value's CCC */
 void smcpad_ble_disconnect(void);
 

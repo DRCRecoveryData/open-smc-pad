@@ -26,6 +26,7 @@
  */
 #include "system/includes.h"
 #include "asm/power_interface.h"            /* AT_VOLATILE_RAM_CODE */
+#include "smcpad_spin.h"
 
 #define RAMFN   AT_VOLATILE_RAM_CODE __attribute__((noinline))
 
@@ -55,9 +56,10 @@
  * covers a second or two -- a 4 KB erase takes milliseconds -- and ends long before the
  * 8 s watchdog. (The first version allowed 200000 polls, which at this clock is over 8 s:
  * a flash that never reported ready would still have ended in a watchdog reset.) */
-#define SPIN_LIMIT      2000000u
-#define WIP_POLLS       20000u
-#define PROBE_LIMIT     100000u    /* re-reads of the XIP probe after resume */
+/* (counts set at 24 MHz, scaled to the clock: smcpad_spin.h) */
+#define SPIN_LIMIT      SMCPAD_SPIN(2000000u)
+#define WIP_POLLS       SMCPAD_SPIN(20000u)
+#define PROBE_LIMIT     SMCPAD_SPIN(100000u)   /* re-reads of the XIP probe after resume */
 #define CMD_RDID        0x9F
 
 /*
@@ -133,6 +135,7 @@ static u32 error_counts[7];
 
 static RAMFN void spin_pause(u32 loops)
 {
+    loops = SMCPAD_SPIN(loops);
     for (volatile u32 i = 0; i < loops; i++) {
         /* busy, in RAM */
     }

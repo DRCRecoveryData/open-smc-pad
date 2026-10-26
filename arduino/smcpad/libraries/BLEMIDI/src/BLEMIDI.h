@@ -7,6 +7,13 @@
  *
  * Other BLE services can live alongside: add them to BLE before BLEMIDI.begin(). SysEx is not
  * handled yet (incoming SysEx is skipped).
+ *
+ * Sending, for low latency: a message goes out at once when the radio has nothing waiting;
+ * otherwise it joins the next packet (each message keeps its own timestamp, so the host keeps
+ * the timing), which leaves as soon as the previous one has gone. A burst (a clock tick and
+ * sixteen notes) is then one or two packets, not seventeen queued one behind the other. The
+ * waiting packet also leaves from yield() (after each loop(), in delay()); begin() asks the
+ * host for a 7.5-15 ms connection interval.
  */
 #pragma once
 #include <ArduinoBLE.h>
@@ -31,7 +38,7 @@ public:
     midiEventPacket_t read();               /* header 0 when nothing is waiting */
     void sendMIDI(midiEventPacket_t event);
     size_t write(const uint8_t *buffer, size_t size);   /* whole 4-byte packets */
-    void flush() {}                         /* every message goes out at once */
+    void flush() { poll(); }                /* a waiting packet: out if the radio is free */
     int available();
 
     /* channel 0..15 */
@@ -49,15 +56,26 @@ public:
 
     BLEService &service() { return _service; }
 
+    /* sends the waiting packet if the radio has nothing queued (yield() calls it) */
+    void poll();
+
 private:
+    static const int PACKET_MAX = 64;       /* bytes; also bounded by the ATT MTU */
+
     static void onWrite(const uint8_t *data, int length, void *arg);
+    static void yieldHook();
     void received(const uint8_t *msg, int length);
+    bool sendPacket();
 
     BLEService _service{"03B80E5A-EDE8-4B33-A751-6CE34EC4C700"};
     BLECharacteristic _io{"7772E5DB-3868-4112-A1A9-F2669D106BF3",
-                          BLERead | BLEWriteWithoutResponse | BLENotify, 20};
+                          BLERead | BLEWriteWithoutResponse | BLENotify, PACKET_MAX};
     midiEventPacket_t _rx[32];
     volatile uint8_t _head = 0, _tail = 0;
+    uint8_t _tx[PACKET_MAX];                /* the packet being filled: header, messages */
+    uint8_t _txLen = 0;
+    uint16_t _txFirst;                      /* its first message's 13-bit timestamp */
+    bool _sending = false;
 };
 
 extern BLEMIDI_ BLEMIDI;

@@ -3,6 +3,7 @@ smcpad_micros
 smcpad_delay
 smcpad_delay_us
 smcpad_yield
+smcpad_yield_hook
 smcpad_serial_connected
 smcpad_serial_write
 smcpad_serial_available
@@ -44,6 +45,8 @@ smcpad_ble_address
 smcpad_ble_central_address
 smcpad_ble_rssi
 smcpad_ble_notify
+smcpad_ble_queued
+smcpad_ble_set_conn_interval
 smcpad_ble_subscribed
 smcpad_ble_disconnect
 smcpad_enter_bootloader

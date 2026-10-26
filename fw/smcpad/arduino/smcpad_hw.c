@@ -22,6 +22,7 @@
 #include "asm/adc_api.h"
 #include "asm/clock.h"
 #include "smcpad_rt.h"
+#include "smcpad_spin.h"
 
 #define REG32(a)            (*(volatile u32 *)(a))
 #define PORT_OUT(b)         REG32((b) + 0x00)
@@ -180,7 +181,7 @@ static void hw_tick_isr(void)
     }
 
     phases_off();
-    for (volatile int i = 0; i < 20; i++) {
+    for (volatile int i = 0; i < SMCPAD_SPIN(20); i++) {
     }                                       /* let PC1 recover from a phase-2 LED */
     if (!(PORT_IN(PORTB) & 1u)) {
         matrix_acc |= 1u << (scan_col * 2);
@@ -242,7 +243,10 @@ uint32_t smcpad_matrix_raw(void)
 
 #define PAD_ON          150                 /* the stock firmware's threshold */
 #define PAD_OFF         80
-#define ATTACK_ROUNDS   3                   /* rounds the peak is looked for after the threshold */
+/* how long the peak is looked for after the threshold, in TIMER3 ticks (250 us): 9 ms, what
+ * three scan rounds took at 24 MHz, where it was tuned; in time, so the CPU clock (which sets
+ * the scan rate) leaves the velocity alone */
+#define ATTACK_TICKS    36
 /* velocity 127 from here up: with the case closed (silicone + graphite) hard hits peak at
  * 925-966 and the sensor saturates at ~990; soft ones land at 215-770 (measured 2026-10-21) */
 #define PAD_FULL        960
@@ -250,7 +254,8 @@ uint32_t smcpad_matrix_raw(void)
 enum { PAD_IDLE, PAD_ATTACK, PAD_HELD };
 
 static volatile u16 pad_raw[SMCPAD_NUM_PADS];   /* by pad */
-static u8 pad_state[SMCPAD_NUM_PADS], pad_rounds[SMCPAD_NUM_PADS];
+static u8 pad_state[SMCPAD_NUM_PADS];
+static u16 pad_t0[SMCPAD_NUM_PADS];      /* hw_ticks at the threshold */
 static u16 pad_peak[SMCPAD_NUM_PADS];
 static u8 adc_pos;
 static volatile u32 adc_rounds;
@@ -266,7 +271,7 @@ static void adc_start(u32 pos)
 {
     u32 con = 0b110;                        /* clock divider, as the SDK's adc_sample() */
 
-    con |= 0x3u << 12;                      /* start delay (x 8 ADC clocks): the mux settles */
+    con |= 0x6u << 12;                      /* start delay (x 8 ADC clocks): the mux settles */
     con |= (pos < 8 ? AD_CH_PA4 : AD_CH_PA6) << 8;
     con |= BIT(3) | BIT(5) | BIT(6);        /* as adc_sample(): ?, interrupt enable, clear */
     JL_ADC->CON = con;
@@ -282,14 +287,14 @@ static void pad_sample(u32 pad, u32 v)
         if (v > PAD_ON) {
             pad_state[pad] = PAD_ATTACK;
             pad_peak[pad] = (u16)v;
-            pad_rounds[pad] = 0;
+            pad_t0[pad] = (u16)hw_ticks;
         }
         break;
     case PAD_ATTACK:
         if (v > pad_peak[pad]) {
             pad_peak[pad] = (u16)v;
         }
-        if (++pad_rounds[pad] >= ATTACK_ROUNDS) {
+        if ((u16)((u16)hw_ticks - pad_t0[pad]) >= ATTACK_TICKS) {
             u32 vel = (pad_peak[pad] - PAD_ON) * 127 / (PAD_FULL - PAD_ON);
 
             ev_push(SMCPAD_EV_PAD_ON, (u8)pad, (s16)(vel < 1 ? 1 : vel > 127 ? 127 : vel));
@@ -397,7 +402,7 @@ void smcpad_rgb_set(int pad, uint32_t color)
 void smcpad_rgb_show(void)
 {
     static u8 sending;
-    u32 clk = clk_get("spi");
+    u32 clk = clk_get("lsb");               /* SPI1's clock, as the SDK's led_spi.c has it */
 
     /* the previous frame still going out (~0.75 ms): until its pending bit; SPI1_CNT does not
      * read back the bytes left */
@@ -414,7 +419,7 @@ void smcpad_rgb_show(void)
             *p++ = (grb >> b) & 1 ? 0xFC : 0xC0;
         }
     }
-    SPI1_BAUD = clk / 12000000 ? clk / 12000000 - 1 : 0;     /* SPI clock = clk / (2 * (BAUD + 1)) */
+    SPI1_BAUD = clk / 6000000 ? clk / 6000000 - 1 : 0;       /* SPI clock = lsb / (BAUD + 1): 6 MHz */
     SPI1_CON |= BIT(14);                    /* clear pending */
     SPI1_ADR = (u32)rgb_buf;
     SPI1_CNT = LED_BYTES;                   /* DMA: returns at once */

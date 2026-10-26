@@ -5,7 +5,7 @@
  * format; reads and writes of its dynamic attributes go to the caller's callbacks, the CCCs
  * (UUID 0x2902) are kept here.
  *
- * Start: smcpad_ble_begin() -> clk_set("sys", BT_NORMAL_HZ) (24 MHz, already the boot clock),
+ * Start: smcpad_ble_begin() -> clk_set("sys", BT_NORMAL_HZ) (96 MHz, already the boot clock),
  * bt_pll_para, btstack_ble_start_before_init, btstack_init; BT_STATUS_INIT_OK then reaches
  * app_idle.c's event handler -> btstack_ble_start_after_init -> bt_ble_init() below, which
  * applies the profile and starts advertising if it was asked for meanwhile.
@@ -49,6 +49,13 @@ static char name[32] = "SMC-PAD";
 static u8 started, ready, module_on, want_adv;
 static volatile u16 con_handle, mtu = 23;
 static u8 central_addr[6];
+static u32 queue_room;                      /* the send queue's free bytes when empty */
+
+/* the connection interval the caller prefers (1.25 ms units, 0: the central's choice), asked
+ * for once per connection, when the central first subscribes (its discovery done) */
+static u16 conn_min, conn_max;
+static volatile u8 conn_asked;
+static struct conn_update_param_t conn_table[2];
 
 static adv_cfg_t adv;
 static u8 adv_data[ADV_RSP_PACKET_MAX], rsp_data[ADV_RSP_PACKET_MAX];
@@ -56,6 +63,24 @@ static u8 adv_data[ADV_RSP_PACKET_MAX], rsp_data[ADV_RSP_PACKET_MAX];
 static int is_ccc(u16 h)
 {
     return h < 256 && (ccc_map[h >> 5] >> (h & 31) & 1);
+}
+
+/* Supervision timeout 4 s. If the central turns the first set down, the second follows Apple's
+ * rule for accessories (max >= min + 15 ms), which iOS and macOS accept. */
+static void conn_request(void)
+{
+    u16 h = con_handle, n = 0;
+
+    if (!h || !conn_min || conn_asked) {
+        return;
+    }
+    conn_table[n++] = (struct conn_update_param_t){ conn_min, conn_max, 0, 400 };
+    if (conn_min < 12 || conn_max < conn_min + 12) {
+        conn_table[n++] = (struct conn_update_param_t){ 12, 24, 0, 400 };
+    }
+    if (ble_gatt_server_connetion_update_request(h, conn_table, n) == 0) {
+        conn_asked = 1;
+    }
 }
 
 /* ------------------------------------------------------------------ GATT callbacks
@@ -83,6 +108,9 @@ static int ble_att_write(hci_con_handle_t handle, uint16_t att_handle, uint16_t 
         u16 v = buffer_size ? buffer[0] | (buffer_size > 1 ? buffer[1] << 8 : 0) : 0;
 
         ble_gatt_server_characteristic_ccc_set(handle, att_handle, v);
+        if (v) {
+            conn_request();
+        }
         if (cb && cb->event) {
             cb->event(SMCPAD_BLE_SUBSCRIBE, att_handle - 1, v);  /* the value handle */
         }
@@ -100,6 +128,8 @@ static int ble_event(int event, u8 *packet, u16 size, u8 *ext_param)
     case GATT_COMM_EVENT_CONNECTION_COMPLETE:
         con_handle = little_endian_read_16(packet, 0);
         mtu = 23;
+        conn_asked = 0;
+        queue_room = ble_comm_cbuffer_vaild_len(con_handle);
         if (ext_param) {                    /* the HCI LE connection complete event */
             memcpy(central_addr, ext_param + 8, 6);
         }
@@ -119,6 +149,7 @@ static int ble_event(int event, u8 *packet, u16 size, u8 *ext_param)
             u16 h = con_handle;
 
             con_handle = 0;
+            conn_asked = 0;
             if (cb && cb->event) {
                 cb->event(SMCPAD_BLE_DISCONNECTED, h, 0);
             }
@@ -396,6 +427,43 @@ int smcpad_ble_notify(uint16_t handle, const uint8_t *data, uint16_t len)
     return ble_comm_att_send_data(con_handle, handle, (u8 *)data, len, ATT_OP_AUTO_READ_CCC) == 0;
 }
 
+/* Bytes waiting in the stack's send queue (headers included), 0 when it is empty or there is
+ * no connection. What has left the queue is in the controller, on air at the next connection
+ * events: a caller that keeps this near 0 keeps its latency at a connection interval or two. */
+uint16_t smcpad_ble_queued(void)
+{
+    u16 h = con_handle;
+    u32 room;
+
+    if (!h) {
+        return 0;
+    }
+    room = ble_comm_cbuffer_vaild_len(h);
+    if (room > queue_room) {                /* (the reading at connection was not empty) */
+        queue_room = room;
+    }
+    return queue_room - room;
+}
+
+/* min / max in 1.25 ms units (6 = 7.5 ms, the shortest); 0, 0: leave it to the central. Asked
+ * for when the central subscribes, or now if it already has. */
+void smcpad_ble_set_conn_interval(uint16_t min, uint16_t max)
+{
+    if (min && min < 6) {
+        min = 6;
+    }
+    conn_min = min;
+    conn_max = max < min ? min : max;
+    if (con_handle && !conn_asked) {
+        for (u32 h = 0; h < 256; h++) {     /* subscribed already: ask now */
+            if (is_ccc(h) && ble_gatt_server_characteristic_ccc_get(con_handle, h)) {
+                conn_request();
+                break;
+            }
+        }
+    }
+}
+
 /* 1 when the central has notifications (bit 0) or indications (bit 1) on for this value. */
 int smcpad_ble_subscribed(uint16_t handle)
 {
@@ -418,6 +486,15 @@ void smcpad_ble_begin(const smcpad_ble_callbacks_t *callbacks)
 int smcpad_ble_ready(void)
 {
     return 0;
+}
+
+uint16_t smcpad_ble_queued(void)
+{
+    return 0;
+}
+
+void smcpad_ble_set_conn_interval(uint16_t min, uint16_t max)
+{
 }
 
 #endif

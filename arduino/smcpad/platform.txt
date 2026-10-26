@@ -2,7 +2,7 @@
 # https://arduino.github.io/arduino-cli/latest/platform-specification/
 
 name=SMC-PAD (open firmware)
-version=0.1.0
+version=0.1.1
 
 # Tools. From the Boards Manager they are packages: the JieLi toolchain (downloaded from JieLi),
 # smcpad-tools (our packer; on macOS also blink and the Linux libraries the toolchain needs) and

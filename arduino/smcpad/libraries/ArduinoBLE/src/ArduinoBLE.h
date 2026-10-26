@@ -258,7 +258,11 @@ public:
     void setEventHandler(BLEDeviceEvent event, BLEDeviceEventHandler eventHandler);
 
     void setAdvertisingInterval(uint16_t advertisingInterval);     /* 0.625 ms units */
-    void setConnectionInterval(uint16_t minimumConnectionInterval, uint16_t maximumConnectionInterval) {}
+    /* 1.25 ms units (6 = 7.5 ms); asked of the central when it subscribes, which may refuse */
+    void setConnectionInterval(uint16_t minimumConnectionInterval, uint16_t maximumConnectionInterval)
+    {
+        smcpad_ble_set_conn_interval(minimumConnectionInterval, maximumConnectionInterval);
+    }
     void setSupervisionTimeout(uint16_t) {}
     void setConnectable(bool connectable);
     void setTimeout(unsigned long timeout) {}
