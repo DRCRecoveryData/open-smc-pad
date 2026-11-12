@@ -15,7 +15,7 @@ a bootloader, an Arduino core and a step sequencer for a 16-pad MIDI controller<
 The [M-Vave SMC-PAD Pocket](https://www.m-vave.com) (SK16-V03) is an inexpensive pad
 controller: 16 RGB velocity- and pressure-sensitive pads, USB-C, Bluetooth MIDI and a battery.
 The full-size SMC-PAD (SK12) adds 8 endless knobs and 10 buttons; this firmware builds for both
-boards (`SMCPAD_POCKET=1` for the Pocket, which is the one verified on hardware). Inside is a
+boards (the Pocket is the default; `SMCPAD_POCKET=0` builds for the SK12 reference board). Inside is a
 JieLi AC6966C, a Bluetooth audio chip that nobody writes firmware for.
 
 This project replaces its firmware, completely and reversibly, with one you can read and change:
