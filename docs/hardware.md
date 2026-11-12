@@ -21,15 +21,18 @@ pad reads (rest 0-1, peak 237-936) and lights the chain LED under the finger.
 |---|---|---|
 | PA0, PA1, PA3, PA4, PB7, PC2, PC4, PC5 | eight pad FSRs direct to SAR channels (ch 0, 1, 2, 3, 9, 10, 11, 12) | fw + measured |
 | PA6 | HCF4051 COM → ADC ch4 (the other eight pads) | fw + measured |
-| PA5, PC1, PC3 | HCF4051 selects S0/S1/S2 (shared by the one mux) | fw + measured |
+| PC3, PC1, PA5 | HCF4051 selects S0/S1/S2 (shared by the one mux) | fw + measured |
 | PB1 | pad RGB LED data (WS2812-style, SPI1 DO map A, DMA) | fw + measured |
 | USBDP/USBDM | USB device (CDC console / MIDI) | board |
 | PD0–PD4 | internal SPI flash | standard JieLi |
 
 The pad service scans eight direct channels and the eight mux positions on a TIMER3 tick; the
 position → pad and pad → chain LED tables live in `smcpad_hw.c` (`pocket_direct_*`,
-`pocket_mux_pad`, `pad_to_led`). The select bit order is the stock one as far as we can tell;
-the pad remap table absorbs any mistake, which is why the wizard checks the LEDs too.
+`pocket_mux_pad`, `pad_to_led`). The select order is **S0 = PC3, S1 = PC1, S2 = PA5** (measured
+2026-11-12 on the hardware): driving the stock channel bits straight on PA5/PC3 read pads 2/5
+and 3/10 swapped (3/6 and 4/11 on the case), exactly a reversal of the two end select bits, so
+`mux_select()` sends the bits reversed. The pad remap table then matches the stock firmware as
+recovered; the wizard checks the LEDs too.
 
 ## SK12 pin map (reference board)
 

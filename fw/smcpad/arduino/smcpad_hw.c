@@ -52,8 +52,8 @@ static const u8 pocket_mux_pad[8] = { 6, 10, 14, 5, 3, 7, 2, 1 };
 /* direct scan steps -> AD_CH_* (PA3, PA4, PB7, PC2, PA1, PC5, PC4, PA0) -> pad */
 static const u8 pocket_direct_ch[8] = { 2, 3, 9, 10, 1, 12, 11, 0 };
 static const u8 pocket_direct_pad[8] = { 0, 4, 8, 9, 11, 12, 13, 15 };
-/* 4051 selects, assumed S0 = PA5, S1 = PC1, S2 = PC3 */
-static const u32 pocket_sel[3] = { IO_PORTA_05, IO_PORTC_01, IO_PORTC_03 };
+/* 4051 selects (S0, S1, S2), measured: PC3, PC1, PA5 */
+static const u32 pocket_sel[3] = { IO_PORTC_03, IO_PORTC_01, IO_PORTA_05 };
 #else
 /* buttons, panel order -> matrix column on PC1 */
 static const u8 button_col[SMCPAD_NUM_BUTTONS] = { 2, 3, 4, 5, 6, 7, 9, 8, 0, 1 };
@@ -307,10 +307,13 @@ static volatile u32 adc_rounds;
 static void mux_select(u32 m)
 {
 #if SMCPAD_POCKET
-    /* S0 = PA5, S1 = PC1, S2 = PC3 (assumed order; a wrong order only permutes the 8 muxed pads) */
-    if (m & 1) PORT_OUT(PORTA) |= 1u << 5; else PORT_OUT(PORTA) &= ~(1u << 5);
+    /* S0 = PC3, S1 = PC1, S2 = PA5 (measured 2026-11-12). Driving the stock channel bits
+     * straight on PA5/PC3 read pads 2/5 and 3/10 swapped: the two end select bits arrive
+     * reversed on this board, so bit reversal here makes the mux land on the channel the
+     * stock table names. */
+    if (m & 1) PORT_OUT(PORTC) |= 1u << 3; else PORT_OUT(PORTC) &= ~(1u << 3);
     if (m & 2) PORT_OUT(PORTC) |= 1u << 1; else PORT_OUT(PORTC) &= ~(1u << 1);
-    if (m & 4) PORT_OUT(PORTC) |= 1u << 3; else PORT_OUT(PORTC) &= ~(1u << 3);
+    if (m & 4) PORT_OUT(PORTA) |= 1u << 5; else PORT_OUT(PORTA) &= ~(1u << 5);
 #else
     if (m & 1) PORT_OUT(PORTB) |= 1u << 2; else PORT_OUT(PORTB) &= ~(1u << 2);
     if (m & 2) PORT_OUT(PORTB) |= 1u << 3; else PORT_OUT(PORTB) &= ~(1u << 3);
