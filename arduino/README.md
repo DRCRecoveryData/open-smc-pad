@@ -5,7 +5,7 @@ write sketches for its 16 RGB velocity pads, USB-MIDI and Bluetooth MIDI (the fu
 adds 8 knobs and 10 buttons), and upload them over USB like any Arduino board. Part of the
 [open SMC-PAD firmware](..).
 
-<p align="center"><img src="https://raw.githubusercontent.com/fedepaj/groovebox/main/docs/img/play-mode.gif" width="560" alt="A sketch running on the SMC-PAD (in the emulator)"></p>
+<p align="center"><img src="../docs/img/pocket-hero.jpg" width="480" alt="The SMC-PAD Pocket (SK16-V03), the board this core runs on"></p>
 
 ```cpp
 #include <SMCPad.h>
