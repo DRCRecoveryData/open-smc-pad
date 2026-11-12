@@ -44,9 +44,12 @@ On any channel, from USB or BLE. Everything is kept in flash.
 | 31 | loop length: 1..4 bars, default 2 (changing it stops the loop) |
 | 32 | loop transpose: 0..24 = -12..+12 semitones, 12 = as recorded (playback only, the take is untouched) |
 | 33 | preset save: 0..7 stores the current state in a slot; program change 0..7 on any channel recalls it |
+| 34 | loop store: stores the current take (events, length, layers, transpose) in flash |
+| 35 | loop load: loads the stored take back, silent; CC 30 = 1 plays it |
 
 A program change recalls the slot of that number: root, scale, chord cap, latch, repeat rate,
-swing, tempo, arp, clock source and octave range. Empty slots are ignored.
+swing, tempo, arp, clock source and octave range. Empty slots are ignored. A stored loop take
+survives a power cycle; until CC 34 is sent the take lives in RAM only.
 
 ## On the pad
 

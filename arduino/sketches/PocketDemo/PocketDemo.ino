@@ -21,8 +21,8 @@
 //   - loop recorder (CC 30: 0 stop, 1 play, 2 record, 3 clear, 4 overdub, 5 undo; CC 31: 1..4
 //     bars; CC 32: 0..24 transposes the playback -12..+12 semitones): it records the notes the
 //     sketch plays against the clock and repeats them; another pass layers over the take and
-//     undo drops the last layer; the top-row pads show the position while it runs (the loop is
-//     in RAM, lost on power cycle)
+//     undo drops the last layer; the top-row pads show the position while it runs; the take is
+//     in RAM (lost on power cycle) until CC 34 stores it in flash, CC 35 loads it back
 //   - presets: program change 0..7 recalls a slot, CC 33 = 0..7 stores the current state into
 //     one; a slot keeps root, scale, chord cap, latch, repeat rate, swing, tempo, arp, clock
 //     source and octave range, so a host can switch songs while the pad plays
@@ -65,6 +65,8 @@ static const uint8_t SYNC_CC = 28;
 static const uint8_t ARP_OCT_CC = 29;
 static const uint8_t LOOP_CC = 30, LOOP_BARS_CC = 31, LOOP_TRANSPOSE_CC = 32;
 static const uint8_t PRESET_SAVE_CC = 33;            // 0..7 stores the playing state in a slot
+static const uint8_t LOOP_STORE_CC = 34;             // stores the take in flash
+static const uint8_t LOOP_LOAD_CC = 35;              // loads the stored take back
 static const uint8_t NUM_CHORDS = 3;                 // 0 single note, 1 triad, 2 seventh
 static const uint8_t NUM_ARPS = 5;                   // 0 whole chord, 1 up, 2 down, 3 up-down, 4 random
 static const uint16_t CLOCKS_PER_BAR = 96;           // 24 PPQN x 4 beats
@@ -72,6 +74,9 @@ static const uint16_t LOOP_EVENTS = 512;             // notes a take can hold
 static const uint8_t LOOP_LAYERS = 8;                // passes that make up a take
 static const int EEPROM_ADDR = 64;                   // clear of SMCPadStock's settings at 0
 static const int EEPROM_PRESET_ADDR = 512;           // presets sit in their own flash chunk
+static const int EEPROM_LOOP_ADDR = 1024;            // 512 packed events, 4 bytes each
+static const int EEPROM_LOOP_HEADER_ADDR = 3072;     // the take's header, in its own chunk
+static const uint32_t LOOP_MAGIC = 0x50444C50;       // marks a stored take ("PD" + loop)
 static const uint8_t NUM_PRESETS = 8;                // recalled with program change 0..7
 static const uint8_t PRESET_SET = 0xA5;              // marks a slot that was stored
 static const uint32_t SETTINGS_MAGIC = 0x50444B07;   // "PDK" v7 (v6 had no arp octave range)
@@ -129,6 +134,15 @@ struct LoopEvent {
   uint8_t status;                                    // 0x90 note on, 0x80 note off
   uint8_t note;
   uint8_t vel;
+};
+
+struct LoopHeader {                                  // what a stored take keeps beside its events
+  uint32_t magic;                                    // LOOP_MAGIC once stored
+  uint16_t count;                                    // events in the take
+  uint16_t layerStart[LOOP_LAYERS];                  // where each layer begins
+  uint8_t bars;
+  uint8_t layerCount;
+  uint8_t transpose;                                 // 0..24 = -12..+12 semitones
 };
 
 // note repeat clock: 24 clocks per quarter, one step per RATE_CLOCKS entry
@@ -628,6 +642,62 @@ static void loopFire() {
   loopFiring = false;
 }
 
+static uint32_t loopPack(const LoopEvent &e) {       // 9 bits at, 1 on, 7 note, 7 velocity
+  return (e.at & 0x1FF)
+       | (((e.status & 0xF0) == 0x90 ? 1UL : 0UL) << 9)
+       | ((uint32_t)(e.note & 0x7F) << 10)
+       | ((uint32_t)(e.vel & 0x7F) << 17);
+}
+
+static LoopEvent loopUnpack(uint32_t w) {
+  LoopEvent e;
+  e.at = w & 0x1FF;
+  e.status = ((w >> 9) & 1) ? (0x90 | CH) : (0x80 | CH);
+  e.note = (w >> 10) & 0x7F;
+  e.vel = (w >> 17) & 0x7F;
+  return e;
+}
+
+static void loopStore() {                            // CC 34: the take to flash
+  if (!loopCount) return;                            // nothing to store, keep the old one
+  if (loopMode == LOOP_ARM_REC || loopMode == LOOP_REC
+      || loopMode == LOOP_ARM_DUB || loopMode == LOOP_DUB) return;   // mid-pass: no
+  LoopHeader h;
+  h.magic = LOOP_MAGIC;
+  h.count = loopCount;
+  h.bars = loopBars;
+  h.layerCount = loopLayerCount;
+  h.transpose = (uint8_t)(loopTranspose + 12);
+  for (int i = 0; i < LOOP_LAYERS; i++) h.layerStart[i] = loopLayerStart[i];
+  for (uint16_t i = 0; i < loopCount; i++) {
+    uint32_t w = loopPack(loopEvents[i]);
+    EEPROM.put(EEPROM_LOOP_ADDR + (int)i * 4, w);
+  }
+  EEPROM.put(EEPROM_LOOP_HEADER_ADDR, h);
+  EEPROM.commit();                                   // a store is user-asked, write it now
+}
+
+static void loopLoad() {                             // CC 35: back from flash, silent
+  if (loopMode == LOOP_ARM_REC || loopMode == LOOP_REC
+      || loopMode == LOOP_ARM_DUB || loopMode == LOOP_DUB) return;   // mid-pass: no
+  LoopHeader h;
+  EEPROM.get(EEPROM_LOOP_HEADER_ADDR, h);
+  if (h.magic != LOOP_MAGIC || h.count > LOOP_EVENTS || h.bars < 1 || h.bars > 4) return;
+  loopStop();
+  loopBars = h.bars;
+  loopTranspose = (int8_t)constrain((int)h.transpose, 0, 24) - 12;
+  loopCount = h.count;
+  loopLayerCount = h.layerCount <= LOOP_LAYERS ? h.layerCount : 0;
+  for (int i = 0; i < LOOP_LAYERS; i++)
+    loopLayerStart[i] = h.layerStart[i] <= loopCount ? h.layerStart[i] : 0;
+  for (uint16_t i = 0; i < loopCount; i++) {
+    uint32_t w;
+    EEPROM.get(EEPROM_LOOP_ADDR + (int)i * 4, w);
+    loopEvents[i] = loopUnpack(w);
+  }
+  loopPos = 0;
+}
+
 static void loopTick() {
   switch (loopMode) {
     case LOOP_ARM_REC:                               // this tick is the downbeat
@@ -750,6 +820,8 @@ static void midiIn() {                               // the next CC 20..26 from 
       else if (p.byte2 == LOOP_BARS_CC) setLoopBars(p.byte3);
       else if (p.byte2 == LOOP_TRANSPOSE_CC) setLoopTranspose(p.byte3);
       else if (p.byte2 == PRESET_SAVE_CC) presetSave(p.byte3);
+      else if (p.byte2 == LOOP_STORE_CC) { if (p.byte3) loopStore(); }
+      else if (p.byte2 == LOOP_LOAD_CC) { if (p.byte3) loopLoad(); }
     }
   }
 }
