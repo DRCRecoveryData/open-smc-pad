@@ -181,7 +181,11 @@ half of them.
   at 24 MHz: BAUD 1; 48 MHz at 96 MHz: BAUD 7). With BAUD 3 at 24 MHz (3 MHz) a 0 bit stays high
   667 ns and reads as 1: every pad shows white on top of its colour (seen 2026-10-20; found by
   sweeping BAUD). The first formula, `clk_get("spi") / 12 MHz - 1`, only held at 24 MHz: at 96
-  MHz every LED went wrong (2026-10-26).
+  MHz every LED went wrong (2026-10-26). The bring-up console still carried that first formula:
+  with `clk_get("spi")` = 32 MHz on the Pocket it gives BAUD 1, i.e. 16 MHz, where no one-byte
+  WS2812 code decodes — the whole chain stayed dark although the frame went out (2026-11-12).
+  Use `clk_get("lsb")` and no factor of two. `BAUD` is write-only (the SDK struct marks it
+  `__WO`), so reading it back always gives 0: never use the read-back to check the setting.
 - One SPI byte per LED bit, MSB first: **`0xFC` = 1, `0xC0` = 0**; colour word **G<<16 | R<<8 | B**;
   frame = 2 zero bytes, 16 × 24 bytes, zeros up to 548 bytes (the reset gap), as the stock
   firmware sends it (`1e10500`).

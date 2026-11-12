@@ -37,7 +37,7 @@ extern void clr_wdt(void);
 
 #define NPADS           16
 #define LED_BYTES       548             /* as the stock firmware sends it */
-#define LED_SPI_HZ      6000000         /* SPI clock = clk / (2 * (BAUD + 1)) */
+#define LED_SPI_HZ      6000000         /* SPI clock = lsb / (BAUD + 1) */
 
 #if SMCPAD_POCKET
 /* Pocket: the pad service hands out values already indexed by logical pad (smcpad_hw.c
@@ -58,14 +58,14 @@ static u8 led_ready;
 
 static void led_init(void)
 {
-    u32 clk = clk_get("spi");
+    u32 clk = clk_get("lsb");
 
     gpio_set_pull_up(IO_PORTB_01, 0);
     gpio_set_pull_down(IO_PORTB_01, 0);
     gpio_direction_output(IO_PORTB_01, 0);
     JL_IOMAP->CON1 &= ~BIT(4);                          /* SPI1 on port A: DO = PB1 */
     SPI1_CON = 0x4021;                                  /* as the stock firmware */
-    SPI1_BAUD = clk / (2 * LED_SPI_HZ) ? clk / (2 * LED_SPI_HZ) - 1 : 0;
+    SPI1_BAUD = clk / LED_SPI_HZ ? clk / LED_SPI_HZ - 1 : 0;
     led_ready = 1;
     smcpad_dbg_kv("rgb: spi clock", clk);
     smcpad_dbg_kv("rgb: baud", SPI1_BAUD);
@@ -77,9 +77,9 @@ static void led_show(void)
         led_init();
     }
     {
-        u32 clk = clk_get("spi");               /* BLE start (Y) changes the clocks */
+        u32 clk = clk_get("lsb");               /* BLE start (Y) changes the clocks */
 
-        SPI1_BAUD = clk / (2 * LED_SPI_HZ) ? clk / (2 * LED_SPI_HZ) - 1 : 0;
+        SPI1_BAUD = clk / LED_SPI_HZ ? clk / LED_SPI_HZ - 1 : 0;
     }
     memset(led_buf, 0, sizeof(led_buf));
     for (u32 i = 0; i < NPADS; i++) {
