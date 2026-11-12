@@ -43,6 +43,21 @@ This project replaces its firmware, completely and reversibly, with one you can 
 <td align="center"><sub>The back: USB-C, the JieLi AC6966C, the HCF4051, and the battery/NTC connectors</sub></td></tr>
 </table>
 
+<table>
+<tr>
+<td align="center"><img src="docs/img/pocket-soc.jpg" width="200" alt="The JieLi AC6966C (U1), marking C09802-66C4"></td>
+<td align="center"><img src="docs/img/pocket-hcf4051.jpg" width="200" alt="The HCF4051 (U2) pad multiplexer"></td>
+<td align="center"><img src="docs/img/pocket-pad.jpg" width="200" alt="One pad: interdigitated capacitive electrode with its centre LED"></td>
+<td align="center"><img src="docs/img/pocket-usbc.jpg" width="200" alt="USB-C, the A1P4056 charger (U3) and the 24 MHz crystal"></td>
+</tr>
+<tr>
+<td align="center"><sub>JieLi AC6966C (U1), the Bluetooth SoC that runs this firmware</sub></td>
+<td align="center"><sub>HCF4051 (U2): eight pads reach the ADC through it, eight go straight</sub></td>
+<td align="center"><sub>One pad: the interdigitated electrode senses the press, the centre LED is part of the chain</sub></td>
+<td align="center"><sub>USB-C, the A1P4056 charger (U3) and the 24 MHz crystal</sub></td>
+</tr>
+</table>
+
 ## Install
 
 <p align="center"><img src="docs/img/install.svg" width="900" alt="Stock firmware, installer, bootloader, your firmware"></p>
