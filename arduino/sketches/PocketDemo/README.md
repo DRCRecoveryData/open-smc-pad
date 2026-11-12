@@ -5,8 +5,9 @@ repeat and an arpeggiator. It is the sketch behind the README animations. There 
 bank or Bluetooth logic: it plays straight out of USB-MIDI, and over BLE-MIDI when a host
 listens.
 
-- the pads walk the selected scale; each pad plays the chord on its scale degree (single,
-  triad or seventh), velocity from how hard it is hit;
+- the pads walk the selected scale; each pad plays the chord on its scale degree, velocity
+  from how hard it is hit, and the pressure opens the chord: light is the root, more the
+  triad, hardest the seventh (CC 22 caps it; latched pads play the cap);
 - latch turns a tap into a toggle; note repeat retriggers held and latched pads from an
   internal clock with rate, swing and tempo; the arpeggiator walks the merged notes of every
   held/latched pad up, down, up-down or random, one note per step;
@@ -24,7 +25,7 @@ On any channel, from USB or BLE. Everything is kept in flash.
 |----|---------|
 | 20 | root: 0..11 = C..B |
 | 21 | scale: 0 chromatic, 1 major pentatonic, 2 minor pentatonic, 3 major, 4 natural minor, 5 dorian, 6 mixolydian, 7 blues |
-| 22 | chord voice: 0 single note, 1 triad, 2 seventh |
+| 22 | chord voice cap: 0 single note, 1 triad, 2 seventh |
 | 23 | latch: 0 off, 1 a tap toggles a pad |
 | 24 | note repeat: 0 off, 1..8 = 1/4, 1/4T, 1/8, 1/8T, 1/16, 1/16T, 1/32, 1/32T |
 | 25 | swing: 0..4 |

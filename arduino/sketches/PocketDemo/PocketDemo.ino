@@ -1,8 +1,9 @@
 // The Pocket on its own: 16 pads played by hand, in a selectable key.
 //   - the pads walk the selected scale: pad 1 is the root, the next pads the next
 //     scale notes, on up through the octaves
-//   - each pad plays the chord of its scale degree: a triad (the default) or a seventh,
-//     stacked from the scale's degrees; CC 22 picks the voice (0 single, 1 triad, 2 seventh)
+//   - each pad plays the chord of its scale degree, stacked from the scale's degrees;
+//     the pressure opens it: light is the root, more the triad, hardest the seventh;
+//     CC 22 caps the voice (0 single, 1 triad, 2 seventh) and latched pads play the cap
 //   - MIDI CC 20 picks the root (0..11 = C..B), CC 21 the scale (0 chromatic,
 //     1 major pentatonic, 2 minor pentatonic, 3 major, 4 natural minor, 5 dorian,
 //     6 mixolydian, 7 blues), on any channel, from USB or BLE; the choices are kept in flash
@@ -55,14 +56,14 @@ static const uint32_t SETTINGS_MAGIC = 0x50444B05;   // "PDK" v5 (v4 had no arp 
 static const uint32_t SETTINGS_MAGIC_V4 = 0x50444B04;
 static const uint32_t SETTINGS_MAGIC_V3 = 0x50444B03;
 static const uint8_t DEFAULT_SCALE = 1;              // major pentatonic
-static const uint8_t DEFAULT_CHORD = 1;              // triad
+static const uint8_t DEFAULT_CHORD = 2;              // the seventh is the cap
 static const uint16_t DEFAULT_BPM = 120;
 
 struct Settings {
   uint32_t magic;
   uint8_t root;                                      // 0..11 = C..B
   uint8_t scale;                                     // index into SCALES
-  uint8_t chord;                                     // 0 single note, 1 triad, 2 seventh
+  uint8_t chord;                                     // voice cap: 0 single, 1 triad, 2 seventh
   uint8_t latch;                                     // 0 momentary, 1 pads toggle
   uint8_t rate;                                      // 0 repeat off, 1..8 (RATE_CLOCKS)
   uint8_t swing;                                     // 0..4
@@ -80,6 +81,7 @@ struct Pad {
   bool sounding;                                     // a note-on sequence is outstanding
   uint8_t soundingNotes[4];                          // exactly what was sent, so offs pair
   uint8_t soundingCount;
+  uint8_t voice;                                     // voice the sounding chord was built with
   uint8_t velocity;                                  // last press, for latched repeats
   uint8_t aftertouch;
   uint32_t releasedAt;
@@ -109,6 +111,7 @@ static bool arpStarted;
 static uint8_t arpSingle;                            // sounding arp note, 0 = none
 static uint32_t arpGateOffAt;                        // micros; 0 = none
 static uint32_t arpKey;                              // signature of the merged set
+static uint32_t arpVoices;                           // 2 bits per pad: the voices behind it
 
 static void settingsDefaults() {
   settings = Settings{SETTINGS_MAGIC, 0, DEFAULT_SCALE, DEFAULT_CHORD, 0, 0, 0, DEFAULT_BPM, 0};
@@ -156,9 +159,9 @@ static void settingsSaveWhenIdle() {
   }
 }
 
-static int chordNotes(int i, uint8_t *out) {          // 1..4 notes, stacked in scale degrees
+static int chordNotes(int i, uint8_t *out, uint8_t voice) {   // 1..4 notes, stacked in scale degrees
   const Scale &s = SCALES[settings.scale];
-  int n = settings.chord == 2 ? 4 : settings.chord == 1 ? 3 : 1;
+  int n = voice == 2 ? 4 : voice == 1 ? 3 : 1;
   for (int k = 0; k < n; k++) {
     int d = i + 2 * k;                                // the scale degree, octaves wrapping
     out[k] = BASE_NOTE + settings.root + 12 * (d / s.count) + s.step[d % s.count];
@@ -168,6 +171,17 @@ static int chordNotes(int i, uint8_t *out) {          // 1..4 notes, stacked in 
 
 static int pressureLevel(int raw) {
   return constrain((raw - 150) * 127 / (960 - 150), 0, 127);
+}
+
+static uint8_t levelToVoice(int level) {
+  return level < 43 ? 0 : level < 85 ? 1 : 2;
+}
+
+// a pad under the finger opens its chord by pressure; latched/struck pads hold the cap
+static uint8_t effectiveVoice(int i) {
+  if (!pad[i].held) return settings.chord;
+  uint8_t v = levelToVoice(pressureLevel(SMCPad.padPressure(i)));
+  return v > settings.chord ? settings.chord : v;
 }
 
 static uint32_t dim(uint32_t c, int num, int den) {
@@ -210,12 +224,31 @@ static void silence(int i) {
 static void sound(int i, uint8_t velocity) {
   silence(i);
   uint8_t notes[4];
-  pad[i].soundingCount = chordNotes(i, notes);
+  pad[i].voice = effectiveVoice(i);
+  pad[i].soundingCount = chordNotes(i, notes, pad[i].voice);
   for (int k = 0; k < pad[i].soundingCount; k++) {
     pad[i].soundingNotes[k] = notes[k];
     midi(0x90 | CH, notes[k], velocity);
   }
   pad[i].sounding = true;
+}
+
+// change the voice mid-hold: only the tail of the chord is added or dropped
+static void setVoice(int i, uint8_t voice) {
+  if (!pad[i].sounding) return;
+  uint8_t notes[4];
+  int n = chordNotes(i, notes, voice);
+  int old = pad[i].soundingCount;
+  uint8_t vel = pad[i].held ? constrain(pressureLevel(SMCPad.padPressure(i)), 1, 127)
+                            : pad[i].velocity;
+  for (int k = old; k < n; k++) {
+    pad[i].soundingNotes[k] = notes[k];
+    midi(0x90 | CH, notes[k], vel);
+  }
+  for (int k = n; k < old; k++) midi(0x80 | CH, pad[i].soundingNotes[k], 0);
+  pad[i].soundingCount = n;
+  pad[i].voice = voice;
+  if (n > old) pad[i].aftertouch = 0;                // re-send 0xA0 to the new notes
 }
 
 static void arpSilence() {
@@ -229,12 +262,15 @@ static void arpSilence() {
 // the notes of every held/latched pad, merged, deduplicated and sorted
 static bool arpRefresh() {
   uint16_t owners = 0;
+  uint32_t voices = 0;
   arpCount = 0;
   for (int i = 0; i < 16; i++) {
     if (!(pad[i].held || pad[i].latched)) continue;
     owners |= 1 << i;
+    uint8_t voice = effectiveVoice(i);
+    voices |= (uint32_t)voice << (2 * i);
     uint8_t notes[4];
-    int n = chordNotes(i, notes);
+    int n = chordNotes(i, notes, voice);
     for (int k = 0; k < n; k++) {
       int slot = 0;
       while (slot < arpCount && arpNotes[slot] < notes[k]) slot++;
@@ -253,8 +289,9 @@ static bool arpRefresh() {
   }
   uint32_t key = owners | (uint32_t)settings.root << 16 | (uint32_t)settings.scale << 20
                  | (uint32_t)settings.chord << 24;
-  bool changed = key != arpKey;
+  bool changed = key != arpKey || voices != arpVoices;
   arpKey = key;
+  arpVoices = voices;
   return changed;
 }
 
@@ -322,10 +359,12 @@ static void setScale(uint8_t scale) {
 }
 
 static void setChord(uint8_t chord) {
-  if (chord != settings.chord) {
-    settings.chord = chord;
-    settingsChanged();
-  }
+  if (chord == settings.chord) return;
+  settings.chord = chord;
+  if (!settings.rate)                                // re-voice what is already sounding
+    for (int i = 0; i < 16; i++)
+      if (pad[i].sounding) setVoice(i, effectiveVoice(i));
+  settingsChanged();
 }
 
 static void setSwing(uint8_t swing) {
@@ -517,6 +556,10 @@ void loop() {
   for (int i = 0; i < 16; i++) {
     if (pad[i].held || pad[i].latched) {
       int level = pad[i].held ? pressureLevel(SMCPad.padPressure(i)) : pad[i].velocity;
+      if (pad[i].held && !settings.rate && pad[i].sounding) {
+        uint8_t voice = effectiveVoice(i);
+        if (voice != pad[i].voice) setVoice(i, voice);
+      }
       if (pad[i].held && !settings.rate && pad[i].sounding
           && abs(level - pad[i].aftertouch) >= 3) {
         pad[i].aftertouch = level;
