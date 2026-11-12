@@ -1,14 +1,17 @@
 // The Pocket on its own: 16 pads played by hand, in a selectable key.
 //   - the pads walk the selected scale: pad 1 is the root, the next pads the next
 //     scale notes, on up through the octaves
+//   - each pad plays the chord of its scale degree: a triad (the default) or a seventh,
+//     stacked from the scale's degrees; CC 22 picks the voice (0 single, 1 triad, 2 seventh)
 //   - MIDI CC 20 picks the root (0..11 = C..B), CC 21 the scale (0 chromatic,
 //     1 major pentatonic, 2 minor pentatonic, 3 major, 4 natural minor, 5 dorian,
-//     6 mixolydian, 7 blues), on any channel, from USB or BLE; the choice is kept in flash
+//     6 mixolydian, 7 blues), on any channel, from USB or BLE; the choices are kept in flash
 //   - each pad sends Note On/Off on channel 1, velocity from how hard it is hit
-//   - holding a pad sends polyphonic aftertouch (0xA0) that follows the pressure
+//   - holding a pad sends polyphonic aftertouch (0xA0) for every note of its chord,
+//     following the pressure
 //   - everything goes out over USB-MIDI and, when a host listens, BLE-MIDI (untethered)
 //   - the pad LED is the pad's colour; root pads sit brighter towards white, pressure
-//     brightens a pad towards white, and a released pad fades out like the note it played
+//     brightens a pad towards white, and a released pad fades out like the notes it played
 #include <SMCPad.h>
 #include <MIDIUSB.h>
 #include <BLEMIDI.h>
@@ -35,15 +38,18 @@ static const Scale SCALES[] = {
 };
 static const uint8_t NUM_SCALES = sizeof(SCALES) / sizeof(SCALES[0]);
 
-static const uint8_t ROOT_CC = 20, SCALE_CC = 21;
+static const uint8_t ROOT_CC = 20, SCALE_CC = 21, CHORD_CC = 22;
+static const uint8_t NUM_CHORDS = 3;                 // 0 single note, 1 triad, 2 seventh
 static const int EEPROM_ADDR = 64;                   // clear of SMCPadStock's settings at 0
-static const uint32_t SETTINGS_MAGIC = 0x50444B02;   // "PDK" v2
+static const uint32_t SETTINGS_MAGIC = 0x50444B03;   // "PDK" v3 (v2 had no chord byte)
 static const uint8_t DEFAULT_SCALE = 1;              // major pentatonic
+static const uint8_t DEFAULT_CHORD = 1;              // triad
 
 struct Settings {
   uint32_t magic;
   uint8_t root;                                      // 0..11 = C..B
   uint8_t scale;                                     // index into SCALES
+  uint8_t chord;                                     // 0 single note, 1 triad, 2 seventh
 };
 
 static Settings settings;
@@ -52,7 +58,8 @@ static bool bleStarted;
 
 struct Pad {
   bool held;
-  uint8_t note;
+  uint8_t notes[4];                                  // the chord: 1..4 notes
+  uint8_t count;
   uint8_t velocity;
   uint8_t aftertouch;
   uint32_t releasedAt;
@@ -61,12 +68,12 @@ struct Pad {
 static Pad pad[16];
 
 static void settingsDefaults() {
-  settings = Settings{SETTINGS_MAGIC, 0, DEFAULT_SCALE};
+  settings = Settings{SETTINGS_MAGIC, 0, DEFAULT_SCALE, DEFAULT_CHORD};
 }
 
 static void settingsLoad() {
   EEPROM.get(EEPROM_ADDR, settings);
-  if (settings.magic != SETTINGS_MAGIC) settingsDefaults();
+  if (settings.magic != SETTINGS_MAGIC) settingsDefaults();   // v3 block: the v2 one had no chord
 }
 
 static void settingsChanged() {
@@ -82,9 +89,14 @@ static void settingsSaveWhenIdle() {
   }
 }
 
-static uint8_t padNote(int i) {
+static int chordNotes(int i, uint8_t *out) {          // 1..4 notes, stacked in scale degrees
   const Scale &s = SCALES[settings.scale];
-  return BASE_NOTE + settings.root + 12 * (i / s.count) + s.step[i % s.count];
+  int n = settings.chord == 2 ? 4 : settings.chord == 1 ? 3 : 1;
+  for (int k = 0; k < n; k++) {
+    int d = i + 2 * k;                                // the scale degree, octaves wrapping
+    out[k] = BASE_NOTE + settings.root + 12 * (d / s.count) + s.step[d % s.count];
+  }
+  return n;
 }
 
 static void setRoot(uint8_t root) {
@@ -97,6 +109,13 @@ static void setRoot(uint8_t root) {
 static void setScale(uint8_t scale) {
   if (scale != settings.scale) {
     settings.scale = scale;
+    settingsChanged();
+  }
+}
+
+static void setChord(uint8_t chord) {
+  if (chord != settings.chord) {
+    settings.chord = chord;
     settingsChanged();
   }
 }
@@ -136,7 +155,7 @@ static void midi(uint8_t status, uint8_t d1, uint8_t d2) {
   if (bleStarted && BLEMIDI.connected()) BLEMIDI.send(status, d1, d2);
 }
 
-static void midiIn() {                               // the next CC 20/21 from USB, else BLE
+static void midiIn() {                               // the next CC 20/21/22 from USB, else BLE
   for (int n = 0; n < 32; n++) {
     midiEventPacket_t p = MidiUSB.read();
     if (!p.header && bleStarted) p = BLEMIDI.read();
@@ -144,22 +163,23 @@ static void midiIn() {                               // the next CC 20/21 from U
     if ((p.byte1 & 0xF0) == 0xB0) {
       if (p.byte2 == ROOT_CC) setRoot(p.byte3 % 12);
       else if (p.byte2 == SCALE_CC) setScale(p.byte3 % NUM_SCALES);
+      else if (p.byte2 == CHORD_CC) setChord(p.byte3 % NUM_CHORDS);
     }
   }
 }
 
 static void onPadPress(int i, int velocity) {
   pad[i].held = true;
-  pad[i].note = padNote(i);
+  pad[i].count = chordNotes(i, pad[i].notes);
   pad[i].velocity = constrain(velocity, 1, 127);
   pad[i].aftertouch = 0;
-  midi(0x90 | CH, pad[i].note, pad[i].velocity);
+  for (int k = 0; k < pad[i].count; k++) midi(0x90 | CH, pad[i].notes[k], pad[i].velocity);
 }
 
 static void onPadRelease(int i) {
   pad[i].held = false;
   pad[i].releasedAt = millis();
-  midi(0x80 | CH, pad[i].note, 0);
+  for (int k = 0; k < pad[i].count; k++) midi(0x80 | CH, pad[i].notes[k], 0);
 }
 
 void setup() {
@@ -180,7 +200,7 @@ void loop() {
       int level = pressureLevel(SMCPad.padPressure(i));
       if (abs(level - pad[i].aftertouch) >= 3) {
         pad[i].aftertouch = level;
-        midi(0xA0 | CH, pad[i].note, level);
+        for (int k = 0; k < pad[i].count; k++) midi(0xA0 | CH, pad[i].notes[k], level);
       }
       uint32_t c = dim(padColor(i), 70 + level * 130 / 127, 255);
       SMCPad.padColor(i, towardWhite(c, level * 48 / 127));
