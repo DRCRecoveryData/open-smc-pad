@@ -5,8 +5,9 @@
 #   host/dfu_flash.sh --bootloader [pkg] # update the bootloader itself (work/flash/boot_update.bin)
 #
 # If the application is running it is asked into the bootloader with the 1200-baud touch (open
-# its serial port at 1200 baud, drop DTR), as Arduino boards do; if the bootloader is already
-# up (asked for earlier, or no valid application) it is used as it is. The file is the
+# its serial port at 1200 baud, drop DTR), as Arduino boards do; where the touch does not reach
+# the firmware (seen on Linux) the console's B command is used instead. If the bootloader is
+# already up (asked for earlier, or no valid application) it is used as it is. The file is the
 # application's app area in plaintext: the bootloader encrypts it for the chip, checks the
 # directory CRC, and writes the directory last, so an interrupted transfer leaves the pad in
 # the bootloader, never with half an application. After a good transfer the bootloader starts
@@ -66,7 +67,36 @@ if ! in_dfu; then
     [ -n "$port" ] || die "neither the bootloader ($DFU_ID) nor the application is on USB"
     echo "== asking the application on $port into the bootloader (1200-baud touch)"
     stty -f "$port" 1200 2>/dev/null; sleep 0.2
-    wait_until in_dfu 10 || die "the bootloader did not show up"
+    if ! wait_until in_dfu 10; then
+        # Linux does not always deliver the 1200-baud line coding the touch needs; the
+        # console's B command does the same reset (it needs access to the port).
+        echo "   touch did not take, sending the console's B command"
+        python3 - "$port" <<'PY' 2>/dev/null || true
+import os, sys, termios, time, fcntl, struct
+fd = os.open(sys.argv[1], os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
+try:
+    a = termios.tcgetattr(fd)
+    a[0] &= ~(termios.IGNBRK | termios.BRKINT | termios.PARMRK | termios.ISTRIP
+              | termios.INLCR | termios.IGNCR | termios.ICRNL | termios.IXON)
+    a[1] &= ~termios.OPOST
+    a[2] &= ~(termios.CSIZE | termios.PARENB)
+    a[2] |= termios.CS8
+    a[3] &= ~(termios.ECHO | termios.ECHONL | termios.ICANON | termios.ISIG | termios.IEXTEN)
+    a[6][termios.VMIN] = 0
+    a[6][termios.VTIME] = 0
+    termios.tcsetattr(fd, termios.TCSANOW, a)
+    fcntl.ioctl(fd, termios.TIOCMBIS, struct.pack("I", termios.TIOCM_DTR))
+    time.sleep(1.0)                     # let the console reach its prompt
+    for _ in range(6):                  # a running monitor eats the first B as its stop key
+        os.write(fd, b"B\r")
+        time.sleep(0.5)
+except OSError:
+    pass                                # gone: the command took, the pad is resetting
+finally:
+    os.close(fd)
+PY
+        wait_until in_dfu 10 || die "the bootloader did not show up (no access to $port for B? run with sudo)"
+    fi
 fi
 
 # the version line the bootloader returns on alt 2 (its USB descriptors never change: macOS
