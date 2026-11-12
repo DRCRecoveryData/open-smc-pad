@@ -23,6 +23,9 @@
 //     sketch plays against the clock and repeats them; another pass layers over the take and
 //     undo drops the last layer; the top-row pads show the position while it runs (the loop is
 //     in RAM, lost on power cycle)
+//   - presets: program change 0..7 recalls a slot, CC 33 = 0..7 stores the current state into
+//     one; a slot keeps root, scale, chord cap, latch, repeat rate, swing, tempo, arp, clock
+//     source and octave range, so a host can switch songs while the pad plays
 //   - each pad sends Note On/Off on channel 1, velocity from how hard it is hit
 //   - holding a pad sends polyphonic aftertouch (0xA0) for every note of its chord,
 //     following the pressure (repeating pads are articulated by their retriggers instead)
@@ -61,12 +64,16 @@ static const uint8_t LATCH_CC = 23, RATE_CC = 24, SWING_CC = 25, TEMPO_CC = 26, 
 static const uint8_t SYNC_CC = 28;
 static const uint8_t ARP_OCT_CC = 29;
 static const uint8_t LOOP_CC = 30, LOOP_BARS_CC = 31, LOOP_TRANSPOSE_CC = 32;
+static const uint8_t PRESET_SAVE_CC = 33;            // 0..7 stores the playing state in a slot
 static const uint8_t NUM_CHORDS = 3;                 // 0 single note, 1 triad, 2 seventh
 static const uint8_t NUM_ARPS = 5;                   // 0 whole chord, 1 up, 2 down, 3 up-down, 4 random
 static const uint16_t CLOCKS_PER_BAR = 96;           // 24 PPQN x 4 beats
 static const uint16_t LOOP_EVENTS = 512;             // notes a take can hold
 static const uint8_t LOOP_LAYERS = 8;                // passes that make up a take
 static const int EEPROM_ADDR = 64;                   // clear of SMCPadStock's settings at 0
+static const int EEPROM_PRESET_ADDR = 512;           // presets sit in their own flash chunk
+static const uint8_t NUM_PRESETS = 8;                // recalled with program change 0..7
+static const uint8_t PRESET_SET = 0xA5;              // marks a slot that was stored
 static const uint32_t SETTINGS_MAGIC = 0x50444B07;   // "PDK" v7 (v6 had no arp octave range)
 static const uint32_t SETTINGS_MAGIC_V6 = 0x50444B06;
 static const uint32_t SETTINGS_MAGIC_V5 = 0x50444B05;
@@ -93,6 +100,13 @@ struct Settings {
 static Settings settings;
 static uint32_t settingsChangedAt;                   // 0: saved
 static bool bleStarted;
+
+struct Preset {                                      // the playing state a slot keeps
+  uint8_t root, scale, chord, latch, rate, swing;
+  uint8_t arp, sync, arpOct;
+  uint8_t set;                                       // PRESET_SET once stored
+  uint16_t bpm;
+};
 
 struct Pad {
   bool held;                                         // finger down
@@ -666,6 +680,41 @@ static void setSync(uint8_t sync) {
   settingsChanged();
 }
 
+static void presetSave(uint8_t slot) {
+  if (slot >= NUM_PRESETS) return;
+  Preset p;
+  p.root = settings.root;
+  p.scale = settings.scale;
+  p.chord = settings.chord;
+  p.latch = settings.latch;
+  p.rate = settings.rate;
+  p.swing = settings.swing;
+  p.bpm = settings.bpm;
+  p.arp = settings.arp;
+  p.sync = settings.sync;
+  p.arpOct = settings.arpOct;
+  p.set = PRESET_SET;
+  EEPROM.put(EEPROM_PRESET_ADDR + slot * (int)sizeof(Preset), p);
+  EEPROM.commit();                                   // a store is user-asked, write it now
+}
+
+static void presetRecall(uint8_t slot) {
+  if (slot >= NUM_PRESETS) return;
+  Preset p;
+  EEPROM.get(EEPROM_PRESET_ADDR + slot * (int)sizeof(Preset), p);
+  if (p.set != PRESET_SET) return;                   // a slot never stored stays ignored
+  setRoot(p.root % 12);
+  setScale(p.scale % NUM_SCALES);
+  setChord(p.chord % NUM_CHORDS);
+  setLatch(p.latch ? 1 : 0);
+  setRate(p.rate <= 8 ? p.rate : 0);
+  setSwing(p.swing);
+  setBpm(p.bpm);
+  setArp(p.arp < NUM_ARPS ? p.arp : 0);
+  setSync(p.sync ? 1 : 0);
+  setArpOct(p.arpOct);
+}
+
 static void midiIn() {                               // the next CC 20..26 from USB, else BLE
   for (int n = 0; n < 32; n++) {
     midiEventPacket_t p = MidiUSB.read();
@@ -684,6 +733,8 @@ static void midiIn() {                               // the next CC 20..26 from 
       triggerPending = false;
     } else if (p.byte1 == 0xFC) {                    // stop: the internal clock takes over
       lastExternalUs = micros() - 500000;
+    } else if ((p.byte1 & 0xF0) == 0xC0) {            // program change: recall a preset
+      if (p.byte2 < NUM_PRESETS) presetRecall(p.byte2);
     } else if ((p.byte1 & 0xF0) == 0xB0) {
       if (p.byte2 == ROOT_CC) setRoot(p.byte3 % 12);
       else if (p.byte2 == SCALE_CC) setScale(p.byte3 % NUM_SCALES);
@@ -698,6 +749,7 @@ static void midiIn() {                               // the next CC 20..26 from 
       else if (p.byte2 == LOOP_CC) setLoop(p.byte3);
       else if (p.byte2 == LOOP_BARS_CC) setLoopBars(p.byte3);
       else if (p.byte2 == LOOP_TRANSPOSE_CC) setLoopTranspose(p.byte3);
+      else if (p.byte2 == PRESET_SAVE_CC) presetSave(p.byte3);
     }
   }
 }

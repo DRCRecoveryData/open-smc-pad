@@ -43,6 +43,10 @@ On any channel, from USB or BLE. Everything is kept in flash.
 | 30 | loop: 0 stop (the take is kept), 1 play, 2 record a new take (one loop length, then it plays), 3 clear, 4 overdub a new layer over the take, 5 undo the last layer (8 layers) |
 | 31 | loop length: 1..4 bars, default 2 (changing it stops the loop) |
 | 32 | loop transpose: 0..24 = -12..+12 semitones, 12 = as recorded (playback only, the take is untouched) |
+| 33 | preset save: 0..7 stores the current state in a slot; program change 0..7 on any channel recalls it |
+
+A program change recalls the slot of that number: root, scale, chord cap, latch, repeat rate,
+swing, tempo, arp, clock source and octave range. Empty slots are ignored.
 
 ## On the pad
 
