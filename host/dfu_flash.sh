@@ -33,8 +33,19 @@ command -v dfu-util >/dev/null || die "dfu-util not found (brew install dfu-util
 [ -f "$IMAGE" ] || die "no image at $IMAGE (host/package_fw.sh boot)"
 
 in_dfu()   { local l; l="$(dfu-util -l 2>/dev/null)"; grep -q "\[$DFU_ID\]" <<<"$l"; }
-app_port() { local r; r="$(ioreg -r -n "$APP_NAME" -l -w 0 2>/dev/null || true)"
-             grep -m1 '"IOCalloutDevice"' <<<"$r" | cut -d'"' -f4; }
+app_port() {
+    if command -v ioreg >/dev/null; then         # macOS
+        local r; r="$(ioreg -r -n "$APP_NAME" -l -w 0 2>/dev/null || true)"
+        grep -m1 '"IOCalloutDevice"' <<<"$r" | cut -d'"' -f4
+        return
+    fi
+    local p=$(ls /dev/serial/by-id/*SMC-PAD* 2>/dev/null | head -1)   # Linux
+    if [ -n "$p" ]; then readlink -f "$p"; return; fi
+    for p in /sys/class/tty/ttyACM*; do
+        [ -r "$p/device/../product" ] || continue
+        grep -qi "SMC-PAD" "$p/device/../product" && { echo "/dev/$(basename "$p")"; return; }
+    done
+}
 app_up()   { [ -n "$(app_port)" ]; }
 wait_until() {   # wait_until <predicate> <timeout_s>
     local i=0

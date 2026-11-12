@@ -68,6 +68,56 @@ def sfc_encrypt_at(data, flash_off, key=CHIPKEY):
     return bytes(out)
 
 
+# --------------------------------------------------------------------------- sector 0
+#
+# Sector 0 (flash header, uboot.boot, isd_config.ini, the app_dir_head pointer) is outside
+# the SFC window and is not stored as the CPU reads it: the SINCO view is the stored bytes
+# XOR an ENC keystream (key 0xFFFF, restarting every 256 bytes).  In the stored form the
+# 32-byte file-list entries are each ENC-ciphered on their own, CRC16 over their last 30
+# bytes.  "Stored" here is what the ROM loader reads and writes.
+
+SECTOR0_SIZE = 0x1000
+
+
+def sector0_keystream():
+    k = bytearray(SECTOR0_SIZE)
+    for off in range(0, SECTOR0_SIZE, 256):
+        enc_cipher(k, off, 256)
+    return bytes(k)
+
+
+def sector0_entries(stored):
+    """(offset, decrypted entry bytes) of strictly valid entries in the file list."""
+    out = []
+    for off in range(0x20, 0x200, ENTRY_SIZE):
+        e = bytearray(stored[off:off + ENTRY_SIZE])
+        enc_cipher(e, 0, ENTRY_SIZE)
+        if crc16(bytes(e[2:])) != struct.unpack_from("<H", e)[0]:
+            break
+        out.append((off, bytes(e)))
+    return out
+
+
+def sector0_app_dir_head(stored):
+    for off, e in sector0_entries(stored):
+        if e[16:28] == b"app_dir_head":
+            return off, struct.unpack_from("<I", e, 4)[0]
+    raise ValueError("no app_dir_head entry in sector 0")
+
+
+def sector0_with_app_dir(stored, target):
+    """The stored sector with app_dir_head's flash offset replaced (entry CRC fixed)."""
+    off, _ = sector0_app_dir_head(stored)
+    e = bytearray(stored[off:off + ENTRY_SIZE])
+    enc_cipher(e, 0, ENTRY_SIZE)
+    struct.pack_into("<I", e, 4, target)
+    struct.pack_into("<H", e, 0, crc16(bytes(e[2:])))
+    enc_cipher(e, 0, ENTRY_SIZE)
+    out = bytearray(stored)
+    out[off:off + ENTRY_SIZE] = e
+    return bytes(out)
+
+
 # --------------------------------------------------------------------------- directory
 
 class Entry:

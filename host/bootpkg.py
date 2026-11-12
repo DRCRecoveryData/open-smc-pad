@@ -33,11 +33,13 @@ ERASE_UPDATE = 0x9000           # APP_DIR
 VM = (0x71000, 0x4000)          # as in host/package_fw.sh
 
 
-def installer_area(template, cfg):
+def installer_area(template, cfg, vm=VM):
     """The installer as an app area for INSTALL_DIR. The uboot maps the directory sector 0
-    points at to CPU (entry & ~0xFFFF), so the code runs at 0x1E00120 like the stock firmware."""
+    points at to CPU (entry & ~0xFFFF), so the code runs at 0x1E00120 like the stock firmware.
+    `vm` must leave the SFC window where the running firmware has it (installer.py derives it
+    from the pad's own directory)."""
     code = (ROOT / "fw/boot/out/install.bin").read_bytes()
-    area = J.build_app_area(code, cfg, template, entry_vma=J.AREA_VMA + 0x120, vm=VM, prct_size=VM[0])
+    area = J.build_app_area(code, cfg, template, entry_vma=J.AREA_VMA + 0x120, vm=vm, prct_size=vm[0])
     if INSTALL_DIR + len(area) > STAGE:
         raise SystemExit(f"installer area too big ({len(area):#x})")
     return area

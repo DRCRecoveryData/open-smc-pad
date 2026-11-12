@@ -48,9 +48,13 @@ Consequences, all verified live:
   SFC-encrypted form (`jlimage.sfc_encrypt_at`), and the read-back then shows the plaintext.
 - **Max 1024 bytes per write.** 2048 corrupts the data, 4096 crashes and reboots the firmware.
 
-Sector 0 is the exception: it does not read back what you write (one side of the path XORs it
-with a fixed keystream, the boot area being stored scrambled). `bootsel.py` writes it, looks at
-what comes back and uses the difference as the keystream for the next attempt, then verifies.
+Sector 0 is the exception: it is outside the SFC window and is stored **XOR an ENC keystream**
+(key 0xFFFF, restarting every 256 bytes, `jlimage.sector0_keystream()`), so a SINCO read (the
+CPU's view) and the physical bytes differ. In the stored sector the 32-byte file-list entries
+are each ENC-ciphered on their own, CRC16 over their last 30 bytes (`jlimage.sector0_entries()`,
+`sector0_with_app_dir()`). Writing the view back is exactly what kept the pad dark on
+2026-11-12: sector 0 has to be written as view XOR keystream, and 0x1000..0x26000 as the
+SFC-encrypted form of the view. `host/maskrom.py` owns both conversions.
 
 ## Flashing our firmware (full replacement)
 
@@ -62,8 +66,14 @@ The firmware replaces the stock one in the app area; sector 0 / uboot stay facto
    match where `.data`/`.data_code` really land in `app.bin`), then `jlimage.py build` (same
    directory as stock: VM `0x26000`, PRCT `0..0x26000`; `--raw` = SFC-encrypted for `0x1000`),
    then writes `work/flash/expected_with_fw.bin`, the image the read-back is checked against.
-3. Wire the Pico running `hw/jl-usbkey` to the pad's USB data lines (GP2 -270R- D+ (U9 pin 25),
-   GP3 -270R- D- (pin 24), GND) and leave it plugged in.
+3. Wire the Pico running `hw/jl-usbkey` to the pad's USB data lines on the tapped cable: GP2 to
+   D+ (green), GP3 to D- (white), GND to GND — direct wires, no series resistors. (An earlier
+   note here put D+ on U9 pin 25; that is wrong, pin 25 is not a data line.) Leave it plugged in.
+   The green/white convention is USB-A only: a **USB-C** cable carries D+/D- as a plain twisted
+   pair (its coax pairs are the SuperSpeed lanes, and their braid is not ground). With the pad
+   enumerated, probe the thin wires one at a time on GP2 (`p` on the Pico): only the real D+
+   reads `HIGH`. Tape or a clip on the jacket is not a connection — solder to bare copper, with
+   strain relief: an intermittent joint reads exactly like "the key never arrives".
 4. Once per machine: build and install the root helper (see below).
 5. `host/flash_fw.sh` — or `host/flash_fw.sh stock` to put the factory firmware back. **Runs as
    you, no password.** If our firmware is running it enters download mode by itself; otherwise it
@@ -103,10 +113,33 @@ Pitfalls found getting this to work hands-free:
 - The Pico (`hw/jl-usbkey`) therefore starts keying (and accepts an acknowledgement) only after
   D+ has stayed low for 10 ms in that attempt -- one low sample is not enough, the host's
   packets toggle D+ while a device is still attached; while D+ is high it leaves both lines
-  alone, so an armed attempt is harmless. The ROM looks for the key right after reset, sooner
+  alone, so an armed attempt does no harm while a firmware is running. The ROM looks for the
+  key right after reset, sooner
   than those 10 ms, so the Pico must be keying *before* the chip restarts: that is why `J`
   detaches and waits 2 s before jumping, and why `Z` (plain reset) or an old `J` that left
   D+ pulled up cannot be caught -- those need a power cycle.
+- **An armed attempt catches the next cold power-up.** At chip reset D+ is low until a firmware
+  brings USB up, so the Pico keys and the ROM takes it: the pad then boots the loader instead of
+  the firmware and the host sees nothing (this looked like "a cable on the host forces download
+  mode" on 2026-11-12). The sketch calls `runAttempt()` from `setup()`, so **replugging the Pico
+  arms it**; send `x` when the pad should boot normally.
+- **Arm the Pico before powering the pad.** With the pad off, send `r` (or replug the Pico) and
+  wait for `D+ low: keying.` on its console; then power the pad on. Arming after the pad is
+  already up misses the ROM's sample window and the pad just boots the firmware. An attempt runs
+  for 10 minutes, so there is no exact timing to hit; after a successful entry the attempt has
+  ended, so arm again (`r`) before the next power cycle. Powering the pad first and arming
+  afterwards is the one order that does not work. Verified 2026-11-12: Pico armed, pad switched
+  off and then on with the switch, the ROM took the key and the pad came up as `4c4a:2542`
+  `UBOOT1.00` on the first try.
+- **When it says `keying.` but the chip never takes the key, suspect the tap before the timing.**
+  `d` holds the data lines low for 300 ms: the host must then log the pad's disconnect and
+  re-enumerate it. If `lsusb`/`dmesg` show nothing, the Pico is not on the data lines (on
+  2026-11-12 both wires had come off the tapped cable after a USB-C replug, and two cold
+  attempts looked exactly like a timing failure). With the pad off, `t` confirms it: a line that
+  reads `HIGH` under the Pico's weak pull-up reaches nothing; `LOW` means it reaches the host.
+- Send bare characters to the Pico console. Its `pollSerial` used to return only the last byte
+  of a read, so a tool writing `x\r` in one packet sent `\r` and the attempt could not be
+  aborted; the sketch now skips `\r`/`\n` and either form works.
 - Commands to a CDC port must be written with the port held open (`port_send` in
   `flash_fw.sh`: open, drain with `cat`, write, wait 0.5 s). `printf J > /dev/cu...` opens and
   closes at once and our console loses the command. To read the Pico reliably use pyserial
@@ -153,9 +186,18 @@ What the script does, and what to do by hand if it breaks:
   asked, so it does not fall back into UBOOT.
 - Then Ctrl-C the bridge and unplug the Pico.
 
-Download-mode reads/writes are **raw physical bytes** (the loader bypasses the ENC block).
-Restore the stock firmware the same way from `dumps/original_physical_full.bin` (the factory
-physical image, rebuilt from the SINCO dump and checked against the vendor UFW).
+Download-mode reads/writes are **raw physical bytes** (the loader bypasses the ENC block), so
+everything written that way must be the storage form, not the SINCO view. `host/maskrom.py`
+does that and verifies every byte (backup first, read-back after):
+
+    host/maskrom.py status          # classify the flash, diff against the factory image
+    host/maskrom.py backup          # the whole 512 KB, raw, into work/recover/
+    host/maskrom.py restore-stock   # the factory firmware, 0..0x75000; data area untouched
+    host/maskrom.py install-boot    # bootloader at 0x1000 (+ sector 0, if it drifted)
+
+`dumps/original_physical_full.bin` is the **raw** image (symlink to `pocket_fw004_physical.bin`);
+`pocket_fw004_flash.bin` is the SINCO view. The tool detects which domain it was given (the
+stored file list only decodes in one of them).
 
 ### Abandoned: booting our firmware next to the stock one
 
