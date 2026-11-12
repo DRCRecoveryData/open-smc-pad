@@ -18,7 +18,7 @@ size_t MIDI_::write(const uint8_t *buffer, size_t size)
 {
     size_t n = 0;
     for (; n + 4 <= size; n += 4) {
-        smcpad_usbmidi_write(buffer + n);
+        if (!smcpad_usbmidi_write(buffer + n)) break;   /* TX fifo full: the rest later */
     }
     return n;
 }

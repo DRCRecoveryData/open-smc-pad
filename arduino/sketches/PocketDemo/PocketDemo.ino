@@ -26,6 +26,8 @@
 //   - presets: program change 0..7 recalls a slot, CC 33 = 0..7 stores the current state into
 //     one; a slot keeps root, scale, chord cap, latch, repeat rate, swing, tempo, arp, clock
 //     source, octave range and gate, so a host can switch songs while the pad plays
+//   - backup/restore over SysEx (F0 7D 53 4D 50 ... F7), on USB and BLE: a host can read the
+//     whole EEPROM image (settings, presets and the stored take) and write it back
 //   - each pad sends Note On/Off on channel 1, velocity from how hard it is hit
 //   - holding a pad sends polyphonic aftertouch (0xA0) for every note of its chord,
 //     following the pressure (repeating pads are articulated by their retriggers instead)
@@ -68,6 +70,16 @@ static const uint8_t PRESET_SAVE_CC = 33;            // 0..7 stores the playing 
 static const uint8_t LOOP_STORE_CC = 34;             // stores the take in flash
 static const uint8_t LOOP_LOAD_CC = 35;              // loads the stored take back
 static const uint8_t GATE_CC = 36;                   // 5..95 % of a step, 50 = half
+static const uint8_t SYSEX_MANUF = 0x7D;             // non-commercial id, then "SMP"
+static const uint8_t SYSEX_DUMP = 0x01;              // host: stream the EEPROM image
+static const uint8_t SYSEX_CHUNK = 0x02;             // host: a restore chunk
+static const uint8_t SYSEX_COMMIT = 0x03;            // host: checksum, write, apply
+static const uint8_t SYSEX_ABORT = 0x04;             // host: drop the staged image
+static const uint8_t SYSEX_CHUNK_OUT = 0x41;         // device: an image chunk
+static const uint8_t SYSEX_ACK = 0x42;               // device: a status code
+static const int SYSEX_DATA = 126;                   // image bytes per chunk (7-bit packed)
+static const int SYSEX_MAX_BYTES = 160;              // a whole message we accept
+static const int EEPROM_SIZE = 4096;
 static const uint8_t NUM_CHORDS = 3;                 // 0 single note, 1 triad, 2 seventh
 static const uint8_t NUM_ARPS = 5;                   // 0 whole chord, 1 up, 2 down, 3 up-down, 4 random
 static const uint16_t CLOCKS_PER_BAR = 96;           // 24 PPQN x 4 beats
@@ -801,11 +813,227 @@ static void presetRecall(uint8_t slot) {
   setGate(p.gate < 5 || p.gate > 95 ? DEFAULT_GATE : p.gate);
 }
 
+// ---------------------------------------------------------------- SysEx backup / restore
+
+/* F0 7D 53 4D 50 <body> F7, on USB or BLE, the body 7-bit packed (LSB first, like the
+ * SINCO protocol): body = cmd hi lo data... . 01 dumps EEPROM 64..4095 in 126-byte 0x41
+ * chunks; 02 stages restore chunks, 03 <sum> writes and applies them, 04 drops them; 0x42
+ * answers with 0 ok / 1 bad image / 2 bad chunk / 3 busy. */
+static uint8_t sysexBuf[SYSEX_MAX_BYTES];            // the USB message being assembled
+static int sysexFill;
+static bool sysexDrop;
+static uint8_t sysexBle[SYSEX_MAX_BYTES];            // a BLE message, read whole
+static uint8_t sysexBody[SYSEX_MAX_BYTES];           // one message, 7-bit unpacked
+static uint8_t sysexImage[EEPROM_SIZE];              // staged restore image: 64..4095
+static bool restoreOn;
+static bool dumpOn, dumpBle;
+static int dumpAddr;
+
+/* binary data travels 7-bit packed: 8 bytes to 7 bits each */
+static int sysexPack(const uint8_t *in, int n, uint8_t *out) {
+  unsigned acc = 0;
+  int bits = 0, k = 0;
+
+  for (int i = 0; i < n; i++) {
+    acc |= (unsigned)in[i] << bits;
+    bits += 8;
+    while (bits >= 7) {
+      out[k++] = acc & 0x7F;
+      acc >>= 7;
+      bits -= 7;
+    }
+  }
+  if (bits) out[k++] = acc & 0x7F;
+  return k;
+}
+
+static int sysexUnpack(const uint8_t *in, int n, uint8_t *out, int max) {
+  unsigned acc = 0;
+  int bits = 0, k = 0;
+
+  for (int i = 0; i < n; i++) {
+    acc |= (unsigned)(in[i] & 0x7F) << bits;
+    bits += 7;
+    while (bits >= 8) {
+      if (k >= max) return k;
+      out[k++] = acc & 0xFF;
+      acc >>= 8;
+      bits -= 8;
+    }
+  }
+  return k;
+}
+
+static bool usbSysExStep(const uint8_t *m, int n, int *pos, int budget) {
+  while (*pos < n && budget-- > 0) {
+    int take = n - *pos < 3 ? n - *pos : 3;
+    uint8_t p[4] = { (uint8_t)(*pos + take == n ? 0x04 + take : 0x04), 0, 0, 0 };
+    memcpy(p + 1, m + *pos, take);
+    if (MidiUSB.write(p, sizeof p) != sizeof p) return false;   // fifo full: resume later
+    *pos += take;
+  }
+  return *pos >= n;
+}
+
+static bool sysexSend(const uint8_t *body, int nb, bool viaBle) {
+  static uint8_t m[SYSEX_MAX_BYTES];
+  int k = sysexPack(body, nb, m + 5);
+
+  m[0] = 0xF0;
+  m[1] = SYSEX_MANUF;
+  m[2] = 'S';
+  m[3] = 'M';
+  m[4] = 'P';
+  m[5 + k] = 0xF7;
+  int n = 6 + k;
+  if (viaBle) return BLEMIDI.connected() && BLEMIDI.sendSysEx(m, n);
+  int pos = 0;
+  for (int tries = 0; pos < n && tries < 200; tries++)
+    if (!usbSysExStep(m, n, &pos, n)) delay(1);
+  return pos >= n;
+}
+
+static void sysexAck(uint8_t code, bool viaBle) {
+  uint8_t body[2] = { SYSEX_ACK, code };
+  sysexSend(body, 2, viaBle);
+}
+
+static uint8_t restoreCommit() {
+  uint32_t magic;
+  LoopHeader h;
+
+  memcpy(&magic, sysexImage + EEPROM_ADDR, sizeof magic);
+  if (magic != SETTINGS_MAGIC && magic != SETTINGS_MAGIC_V7 && magic != SETTINGS_MAGIC_V6
+      && magic != SETTINGS_MAGIC_V5 && magic != SETTINGS_MAGIC_V4 && magic != SETTINGS_MAGIC_V3)
+    return 1;
+  memcpy(&h, sysexImage + EEPROM_LOOP_HEADER_ADDR, sizeof h);
+  bool takeOk = h.magic == LOOP_MAGIC && h.count <= LOOP_EVENTS
+                && h.bars >= 1 && h.bars <= 4 && h.layerCount <= LOOP_LAYERS;
+  for (int i = 0; takeOk && i < LOOP_LAYERS; i++)
+    if (h.layerStart[i] > h.count) takeOk = false;
+  if (!takeOk) memset(sysexImage + EEPROM_LOOP_HEADER_ADDR, 0xFF, sizeof h);
+  arpSilence();
+  for (int i = 0; i < 16; i++) silence(i);
+  loopStop();
+  for (int a = EEPROM_ADDR; a < EEPROM_SIZE; a++)
+    if (EEPROM.read(a) != sysexImage[a]) EEPROM.write(a, sysexImage[a]);
+  if (!EEPROM.commit()) return 1;
+  settingsLoad();                                    // an older version is migrated here
+  EEPROM.put(EEPROM_ADDR, settings);                 // and written back at once
+  EEPROM.commit();
+  settingsChangedAt = 0;
+  loopCount = 0;
+  loopLayerCount = 0;
+  for (int i = 0; i < LOOP_LAYERS; i++) loopLayerStart[i] = 0;
+  loopTranspose = 0;
+  loopLoad();                                        // the restored take, silent
+  return 0;
+}
+
+static void sysexIn(const uint8_t *m, int n, bool viaBle) {
+  if (n < 8 || m[0] != 0xF0 || m[1] != SYSEX_MANUF || m[2] != 'S' || m[3] != 'M'
+      || m[4] != 'P' || m[n - 1] != 0xF7) return;
+  int nb = sysexUnpack(m + 5, n - 6, sysexBody, sizeof sysexBody);
+  uint8_t cmd = nb > 0 ? sysexBody[0] : 0;
+
+  if (cmd == SYSEX_DUMP && nb == 1) {                // EEPROM 64..4095, in chunks
+    dumpOn = true;
+    dumpBle = viaBle;
+    dumpAddr = EEPROM_ADDR;
+    return;
+  }
+  if (cmd == SYSEX_ABORT && nb == 1) {
+    restoreOn = false;
+    return;
+  }
+  if (cmd == SYSEX_CHUNK) {                          // an address, then image bytes
+    int len = nb - 3;
+    int addr = nb >= 3 ? ((int)sysexBody[1] << 7) | sysexBody[2] : 0;
+
+    if (len < 1 || len > SYSEX_DATA || addr < EEPROM_ADDR || addr + len > EEPROM_SIZE) {
+      sysexAck(2, viaBle);
+      return;
+    }
+    if (!restoreOn) {
+      memset(sysexImage, 0, sizeof sysexImage);
+      restoreOn = true;
+    }
+    memcpy(sysexImage + addr, sysexBody + 3, len);
+    return;
+  }
+  if (cmd == SYSEX_COMMIT) {
+    uint8_t sum = 0;
+
+    if (nb != 2 || !restoreOn) {
+      sysexAck(2, viaBle);
+      return;
+    }
+    if (loopMode == LOOP_ARM_REC || loopMode == LOOP_REC
+        || loopMode == LOOP_ARM_DUB || loopMode == LOOP_DUB) {
+      sysexAck(3, viaBle);                            // a pass is running: try after it
+      return;
+    }
+    for (int a = EEPROM_ADDR; a < EEPROM_SIZE; a++) sum += sysexImage[a];
+    restoreOn = false;
+    sysexAck(((sum & 0x7F) == (sysexBody[1] & 0x7F)) ? restoreCommit() : 1, viaBle);
+  }
+}
+
+/* a USB-MIDI CIN 4..7 packet: a few SysEx bytes; the F7 ends the message */
+static void sysexPacket(midiEventPacket_t p) {
+  int cin = p.header & 0x0F;
+  int n = cin == 5 ? 1 : cin == 6 ? 2 : 3;
+  const uint8_t b[3] = { p.byte1, p.byte2, p.byte3 };
+
+  if (b[0] == 0xF0) {                                // a start: drop any half message
+    sysexFill = 0;
+    sysexDrop = false;
+  } else if (!sysexFill) {
+    return;                                          // not inside a message
+  }
+  for (int i = 0; i < n; i++) {
+    if (sysexFill < SYSEX_MAX_BYTES) sysexBuf[sysexFill++] = b[i];
+    else sysexDrop = true;
+  }
+  if (sysexBuf[sysexFill - 1] == 0xF7) {
+    if (!sysexDrop) sysexIn(sysexBuf, sysexFill, false);
+    sysexFill = 0;
+  }
+}
+
+/* one chunk at a time, so the sketch keeps running; the radio or the fifo paces it */
+static void sysexDumpPoll() {
+  if (!dumpOn) return;
+  if (dumpBle && !BLEMIDI.connected()) {
+    dumpOn = false;
+    return;
+  }
+  if (dumpBle && BLEMIDI.busy()) return;
+  int len = EEPROM_SIZE - dumpAddr;
+
+  if (len > SYSEX_DATA) len = SYSEX_DATA;
+  uint8_t body[3 + SYSEX_DATA];
+  body[0] = SYSEX_CHUNK_OUT;
+  body[1] = (uint8_t)(dumpAddr >> 7);
+  body[2] = (uint8_t)(dumpAddr & 0x7F);
+  for (int i = 0; i < len; i++) body[3 + i] = EEPROM.read(dumpAddr + i);
+  if (!sysexSend(body, 3 + len, dumpBle)) {
+    dumpOn = false;
+    return;
+  }
+  dumpAddr += len;
+  if (dumpAddr >= EEPROM_SIZE) dumpOn = false;
+}
+
 static void midiIn() {                               // the next CC 20..26 from USB, else BLE
   for (int n = 0; n < 32; n++) {
     midiEventPacket_t p = MidiUSB.read();
     if (!p.header && bleStarted) p = BLEMIDI.read();
-    if (!p.header) return;
+    if (!p.header) break;
+    if ((p.header & 0x0F) >= 4 && (p.header & 0x0F) <= 7) {   // a SysEx packet
+      sysexPacket(p);
+      continue;
+    }
     if (p.byte1 == 0xF8) {
       if (settings.sync) {                           // the host's 24-PPQN clock
         uint32_t now = micros();
@@ -840,6 +1068,10 @@ static void midiIn() {                               // the next CC 20..26 from 
       else if (p.byte2 == LOOP_LOAD_CC) { if (p.byte3) loopLoad(); }
       else if (p.byte2 == GATE_CC) setGate(p.byte3);
     }
+  }
+  if (bleStarted) {
+    for (int n; (n = BLEMIDI.readSysEx(sysexBle, SYSEX_MAX_BYTES)) > 0; )
+      sysexIn(sysexBle, n, true);
   }
 }
 
@@ -949,6 +1181,7 @@ static uint32_t loopColor(int slot, uint32_t now) {
 void loop() {
   SMCPad.update();
   midiIn();
+  sysexDumpPoll();
   settingsSaveWhenIdle();
   if (settings.rate || loopMode) clockRun();
   uint32_t now = millis();

@@ -133,6 +133,44 @@ bool BLEMIDI_::send(uint8_t status, uint8_t data1, uint8_t data2)
     return true;
 }
 
+/* A whole SysEx message to the stack, split into packets: header, timestamp, data; the F0
+ * travels in the first packet, the F7 in the last. Blocking (a packet waits for queue room):
+ * meant for user-asked dumps, not for the note path. */
+bool BLEMIDI_::sendSysEx(const uint8_t *data, int len)
+{
+    uint16_t ts = millis() & 0x1FFF;
+    int room = smcpad_ble_mtu() - 3;
+
+    if (!_io.subscribed() || _sending || len < 2) {
+        return false;
+    }
+    if (room > PACKET_MAX) {
+        room = PACKET_MAX;
+    }
+    if (room < 3) {
+        return false;
+    }
+    if (_txLen && !sendPacket()) {                  /* a note packet is waiting: let it go */
+        return false;
+    }
+    for (int i = 0; i < len; ) {
+        int n = len - i;
+
+        if (n > room - 2) {
+            n = room - 2;
+        }
+        _tx[0] = 0x80 | (ts >> 7);
+        _tx[1] = 0x80 | (ts & 0x7F);
+        memcpy(_tx + 2, data + i, n);
+        _txLen = 2 + n;
+        if (!sendPacket()) {
+            return false;
+        }
+        i += n;
+    }
+    return true;
+}
+
 void BLEMIDI_::sendMIDI(midiEventPacket_t event)
 {
     if (cin_length(event.header)) {
@@ -161,8 +199,68 @@ void BLEMIDI_::received(const uint8_t *msg, int length)
     _head = next;
 }
 
+/* ------------------------------------------------------------------ SysEx (BT task) */
+
+/* A message starts: its bytes go into the slot the sketch is not reading */
+void BLEMIDI_::sysexStart()
+{
+    uint8_t pending = (uint8_t)(_sxHead - _sxTail);   /* messages not read yet */
+
+    _sxBuild = _sxHead % SYSEX_SLOTS;
+    _sxFill = 0;
+    _sxDrop = pending >= SYSEX_SLOTS;                 /* both slots taken: drop this one */
+    _sxActive = true;
+    sysexAppend(0xF0);
+}
+
+void BLEMIDI_::sysexAppend(uint8_t b)
+{
+    if (_sxFill < SYSEX_MAX) {
+        _sx[_sxBuild][_sxFill++] = b;
+    } else {
+        _sxDrop = true;
+    }
+}
+
+void BLEMIDI_::sysexFinish()
+{
+    if (!_sxDrop && _sxFill >= 2) {
+        _sxLen[_sxBuild] = _sxFill;
+        _sxHead++;
+    }
+    _sxActive = false;
+}
+
+/* The rest of the message from p[i]. Data bytes are 7-bit; a byte with bit 7 set is a
+ * packet header (skipped, with its timestamp), the F7 ends the message, real time is
+ * ignored and the assembly goes on. */
+void BLEMIDI_::sysexFeed(const uint8_t *p, int i, int n)
+{
+    while (i < n) {
+        uint8_t b = p[i];
+
+        if (b < 0x80) {
+            sysexAppend(b);
+            i++;
+        } else if (b == 0xF7) {
+            sysexAppend(b);
+            sysexFinish();
+            return;
+        } else if (b >= 0xF8) {
+            i++;                                    /* real time */
+        } else if (b < 0xC0) {
+            i++;                                    /* header ... */
+            if (i < n && (p[i] & 0x80)) {
+                i++;                                /* ... and its timestamp */
+            }
+        } else {
+            i++;                                    /* not a header: skip */
+        }
+    }
+}
+
 /* header, then [timestamp] status data... / [timestamp] data (running status) / data
- * (running status, same timestamp). SysEx is skipped. */
+ * (running status, same timestamp). An F0 starts a SysEx that the later writes continue. */
 void BLEMIDI_::onWrite(const uint8_t *p, int n, void *arg)
 {
     BLEMIDI_ *self = (BLEMIDI_ *)arg;
@@ -172,6 +270,10 @@ void BLEMIDI_::onWrite(const uint8_t *p, int n, void *arg)
     if (n < 2 || (p[0] & 0xC0) != 0x80) {
         return;                                     /* not a BLE-MIDI header */
     }
+    if (self->_sxActive) {                          /* the message goes on from here */
+        self->sysexFeed(p, 0, n);
+        return;
+    }
     while (i < n) {
         uint8_t b = p[i++];
 
@@ -179,11 +281,16 @@ void BLEMIDI_::onWrite(const uint8_t *p, int n, void *arg)
             if (i < n && (p[i] & 0x80)) {           /* ... followed by a status byte */
                 uint8_t st = p[i++];
 
+                if (st == 0xF0) {                   /* SysEx: this write goes on in it */
+                    self->sysexStart();
+                    self->sysexFeed(p, i, n);
+                    return;
+                }
                 if (st >= 0xF8) {                   /* real time: one byte, status unchanged */
                     self->received(&st, 1);
                     continue;
                 }
-                status = (st == 0xF0 || st == 0xF7) ? 0 : st;   /* SysEx: skip its data */
+                status = st == 0xF7 ? 0 : st;       /* a stray F7: skip */
                 have = 0;
                 if (status && midi_length(status) == 1) {
                     self->received(&status, 1);
@@ -221,4 +328,21 @@ midiEventPacket_t BLEMIDI_::read()
         _tail = (_tail + 1) % 32;
     }
     return p;
+}
+
+int BLEMIDI_::readSysEx(uint8_t *out, int max)
+{
+    BLE.poll();
+    if (_sxHead == _sxTail) {
+        return 0;
+    }
+    uint8_t slot = _sxTail % SYSEX_SLOTS;
+    int n = _sxLen[slot];
+
+    if (n > max) {
+        n = max;                                    /* short buffer: the tail is lost */
+    }
+    memcpy(out, _sx[slot], n);
+    _sxTail++;
+    return n;
 }

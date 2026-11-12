@@ -52,6 +52,26 @@ A program change recalls the slot of that number: root, scale, chord cap, latch,
 swing, tempo, arp, clock source, octave range and gate. Empty slots are ignored. A stored loop take
 survives a power cycle; until CC 34 is sent the take lives in RAM only.
 
+## Backup and restore
+
+A host can read and write the whole persistent image — settings, the 8 presets and the
+stored loop take — over SysEx, on USB or BLE-MIDI. Bytes 0..63 (the stock firmware's
+settings) are never touched. The message is `F0 7D 53 4D 50 <body> F7`, the body 7-bit
+packed LSB-first, and the body starts with a command:
+
+| body | meaning |
+|------|---------|
+| `01` | dump request: the pad streams EEPROM 64..4095 |
+| `41 hi lo <126 bytes>` | one dump chunk |
+| `02 hi lo <data>` | a restore chunk, staged in RAM (nothing written yet) |
+| `03 sum` | apply: settings magic and take header checked, bytes written once, state reloaded |
+| `04` | drop the staged image |
+| `42 code` | ack: 0 ok, 1 bad image/checksum, 2 bad chunk, 3 busy (recording) |
+
+`host/pocket_backup.py` does both ends: `python3 host/pocket_backup.py backup pad.bin` and
+`... restore pad.bin`, with `--port` to pick the USB or the BLE-MIDI port (default: the
+port whose name has "SMC-PAD").
+
 ## On the pad
 
 Upload it like any sketch: open `PocketDemo.ino`, choose **M-Vave SMC-PAD (open firmware)** and

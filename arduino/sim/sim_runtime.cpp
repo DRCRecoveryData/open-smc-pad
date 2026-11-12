@@ -9,7 +9,8 @@
  *   <t> button <0-9> down|up                     <t> knob <0-7> <delta>
  *   <t> midi <hex bytes...>                      (incoming, e.g. F8, or a whole SysEx)
  * Output (stdout, JSON lines): {"t":ms,"pads":[16 x 0xRRGGBB],"leds":[10 x 0/1]} per frame,
- * {"t":ms,"midi":[bytes]} per outgoing message.
+ * {"t":ms,"midi":[bytes]} per outgoing message, {"t":ms,"sysex":[bytes]} per outgoing SysEx
+ * packet (CIN 4..7, reassemble by concatenation).
  */
 #include <cstdio>
 #include <cstdlib>
@@ -154,7 +155,16 @@ void smcpad_serial_flush(void) {}
 int smcpad_usbmidi_write(const uint8_t packet[4])
 {
     static const int len[16] = {0, 0, 2, 3, 3, 1, 2, 3, 3, 3, 3, 3, 2, 2, 3, 1};
-    int n = len[packet[0] & 15];
+    int cin = packet[0] & 15;
+
+    if (cin >= 4 && cin <= 7) {                      // SysEx: bytes of a message being sent
+        int n = cin == 5 ? 1 : cin == 6 ? 2 : 3;
+        printf("{\"t\":%.1f,\"sysex\":[", now_us / 1000.0);
+        for (int i = 0; i < n; i++) printf("%s%u", i ? "," : "", packet[1 + i]);
+        printf("]}\n");
+        return 1;
+    }
+    int n = len[cin];
     printf("{\"t\":%.1f,\"midi\":[", now_us / 1000.0);
     for (int i = 0; i < n; i++) printf("%s%u", i ? "," : "", packet[1 + i]);
     printf("]}\n");
