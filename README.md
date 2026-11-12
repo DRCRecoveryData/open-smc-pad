@@ -33,6 +33,8 @@ This project replaces its firmware, completely and reversibly, with one you can 
 - 🎹 **The controller it was** — [SMCPadStock](arduino/sketches/SMCPadStock)
   does what the factory firmware did (notes, CCs, Mackie Control, note repeat, aftertouch), as a
   sketch you can tweak.
+- 🥁 **[PocketDemo](arduino/sketches/PocketDemo)** — the small sketch in the animation above:
+  16 notes with velocity, polyphonic aftertouch, and each pad lit by its own pressure.
 - 🔌 **[A USB bootloader](fw)** — installed from the stock
   firmware over USB, no tools inside the case; firmware updates by DFU from then on, and it
   catches a crashing firmware so the pad can never be lost to a bad upload.
