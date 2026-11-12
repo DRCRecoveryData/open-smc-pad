@@ -1,13 +1,17 @@
 // The Pocket on its own: 16 pads, one note each, played by hand.
 //   - each pad sends Note On/Off on channel 1 (48..63), velocity from how hard it is hit
 //   - holding a pad sends polyphonic aftertouch (0xA0) that follows the pressure
+//   - everything goes out over USB-MIDI and, when a host listens, BLE-MIDI (untethered)
 //   - the pad LED is the pad's colour; pressure brightens it towards white, and a
 //     released pad fades out like the note it played
 #include <SMCPad.h>
 #include <MIDIUSB.h>
+#include <BLEMIDI.h>
 
 static const uint8_t CH = 0;                         // MIDI channel 1
 static const uint8_t BASE_NOTE = 48;                 // C3 on pad 1
+
+static bool bleStarted;
 
 struct Pad {
   bool held;
@@ -50,6 +54,7 @@ static uint32_t padColor(int i) {
 static void midi(uint8_t status, uint8_t d1, uint8_t d2) {
   MidiUSB.sendMIDI({(uint8_t)(status >> 4), status, d1, d2});
   MidiUSB.flush();
+  if (bleStarted && BLEMIDI.connected()) BLEMIDI.send(status, d1, d2);
 }
 
 static void onPadPress(int i, int velocity) {
@@ -68,6 +73,7 @@ static void onPadRelease(int i) {
 void setup() {
   SMCPad.onPadPress(onPadPress);
   SMCPad.onPadRelease(onPadRelease);
+  bleStarted = BLEMIDI.begin("SMC-PAD Pocket");
 }
 
 void loop() {
