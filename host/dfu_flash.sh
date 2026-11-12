@@ -5,9 +5,9 @@
 #   host/dfu_flash.sh --bootloader [pkg] # update the bootloader itself (work/flash/boot_update.bin)
 #
 # If the application is running it is asked into the bootloader with the 1200-baud touch (open
-# its serial port at 1200 baud, drop DTR), as Arduino boards do; where the touch does not reach
-# the firmware (seen on Linux) the console's B command is used instead. If the bootloader is
-# already up (asked for earlier, or no valid application) it is used as it is. The file is the
+# its serial port at 1200 baud, drop DTR), as Arduino boards do; a console firmware can also be
+# asked with its B command. If the bootloader is already up (asked for earlier, or no valid
+# application) it is used as it is. The file is the
 # application's app area in plaintext: the bootloader encrypts it for the chip, checks the
 # directory CRC, and writes the directory last, so an interrupted transfer leaves the pad in
 # the bootloader, never with half an application. After a good transfer the bootloader starts
@@ -66,10 +66,24 @@ if ! in_dfu; then
     port="$(app_port)"
     [ -n "$port" ] || die "neither the bootloader ($DFU_ID) nor the application is on USB"
     echo "== asking the application on $port into the bootloader (1200-baud touch)"
-    stty -f "$port" 1200 2>/dev/null; sleep 0.2
+    # Open (DTR high), set 1200 baud, drop DTR: what Arduino boards watch for. `stty -f` does
+    # not do it here -- it never raises DTR on the way -- so the sequence is explicit.
+    python3 - "$port" <<'PY' 2>/dev/null || true
+import os, sys, termios, time, fcntl, struct
+fd = os.open(sys.argv[1], os.O_RDWR | os.O_NOCTTY)
+a = termios.tcgetattr(fd)
+a[2] &= ~(termios.CSIZE | termios.PARENB)
+a[2] |= termios.CS8
+a[4] = a[5] = termios.B1200
+termios.tcsetattr(fd, termios.TCSANOW, a)
+fcntl.ioctl(fd, termios.TIOCMBIS, struct.pack("I", termios.TIOCM_DTR))
+time.sleep(0.1)
+fcntl.ioctl(fd, termios.TIOCMBIC, struct.pack("I", termios.TIOCM_DTR))
+time.sleep(0.1)
+os.close(fd)
+PY
     if ! wait_until in_dfu 10; then
-        # Linux does not always deliver the 1200-baud line coding the touch needs; the
-        # console's B command does the same reset (it needs access to the port).
+        # A console firmware can also be asked with its B command (it needs access to the port).
         echo "   touch did not take, sending the console's B command"
         python3 - "$port" <<'PY' 2>/dev/null || true
 import os, sys, termios, time, fcntl, struct

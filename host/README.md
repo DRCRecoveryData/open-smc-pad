@@ -16,6 +16,7 @@ each one says what it needs at the top.
 
 | | |
 |---|---|
+| `build_sketch.sh` | build a sketch for the pad on this Linux host, without Docker (`--flash` sends it): core, libraries, app area |
 | `package_fw.sh` | firmware / bootloader builds → app areas in `work/flash/` |
 | `jlimage.py` | JieLi flash images: JLFS directories, CRCs, SFC encryption (`selftest` rebuilds the stock area byte for byte) |
 | `bootpkg.py` | the bootloader update package (installer + staging area) |
