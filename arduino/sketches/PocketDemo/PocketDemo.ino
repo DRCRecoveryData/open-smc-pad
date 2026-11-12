@@ -18,9 +18,10 @@
 //   - clock: CC 28 = 0 runs the repeat/arp from the internal clock (CC 26 tempo), 1 follows
 //     an external 24-PPQN MIDI clock (start/continue/stop honoured) and falls back to the
 //     internal clock when the host's clock stops
-//   - loop recorder (CC 30: 0 stop, 1 play, 2 record, 3 clear; CC 31: 1..4 bars): it records
-//     the notes the sketch plays against the clock and repeats them; the top-row pads show
-//     the position while it runs (the loop is in RAM, lost on power cycle)
+//   - loop recorder (CC 30: 0 stop, 1 play, 2 record, 3 clear, 4 overdub, 5 undo; CC 31: 1..4
+//     bars): it records the notes the sketch plays against the clock and repeats them; another
+//     pass layers over the take and undo drops the last layer; the top-row pads show the
+//     position while it runs (the loop is in RAM, lost on power cycle)
 //   - each pad sends Note On/Off on channel 1, velocity from how hard it is hit
 //   - holding a pad sends polyphonic aftertouch (0xA0) for every note of its chord,
 //     following the pressure (repeating pads are articulated by their retriggers instead)
@@ -63,6 +64,7 @@ static const uint8_t NUM_CHORDS = 3;                 // 0 single note, 1 triad, 
 static const uint8_t NUM_ARPS = 5;                   // 0 whole chord, 1 up, 2 down, 3 up-down, 4 random
 static const uint16_t CLOCKS_PER_BAR = 96;           // 24 PPQN x 4 beats
 static const uint16_t LOOP_EVENTS = 512;             // notes a take can hold
+static const uint8_t LOOP_LAYERS = 8;                // passes that make up a take
 static const int EEPROM_ADDR = 64;                   // clear of SMCPadStock's settings at 0
 static const uint32_t SETTINGS_MAGIC = 0x50444B07;   // "PDK" v7 (v6 had no arp octave range)
 static const uint32_t SETTINGS_MAGIC_V6 = 0x50444B06;
@@ -139,13 +141,17 @@ static uint32_t arpKey;                              // signature of the merged 
 static uint32_t arpVoices;                           // 2 bits per pad: the voices behind it
 
 // loop recorder: what was played, by clock position
-enum { LOOP_OFF, LOOP_ARM_REC, LOOP_REC, LOOP_ARM_PLAY, LOOP_PLAY };
+enum { LOOP_OFF, LOOP_ARM_REC, LOOP_REC, LOOP_ARM_DUB, LOOP_DUB, LOOP_ARM_PLAY, LOOP_PLAY };
 static uint8_t loopMode;
 static uint8_t loopBars = 2;                         // 1..4, runtime only
 static uint16_t loopPos;
 static uint16_t loopCount;
 static LoopEvent loopEvents[LOOP_EVENTS];
 static uint32_t loopNoteBits[4];                     // notes the playback left sounding
+static uint16_t loopLayerStart[LOOP_LAYERS];         // where each layer begins
+static uint8_t loopLayerCount;                       // layers stored, 0 = empty take
+static uint16_t loopDubBase;                         // events before the pass being recorded
+static bool loopFiring;                              // midi() is replaying the loop
 
 static void settingsDefaults() {
   settings = Settings{SETTINGS_MAGIC, 0, DEFAULT_SCALE, DEFAULT_CHORD, 0, 0, 0, DEFAULT_BPM, 0, 0, 1};
@@ -254,7 +260,8 @@ static uint32_t padColor(int i) {
 
 static void midi(uint8_t status, uint8_t d1, uint8_t d2) {
   uint8_t kind = status & 0xF0;
-  if (loopMode == LOOP_REC && (kind == 0x90 || kind == 0x80) && loopCount < LOOP_EVENTS)
+  if (!loopFiring && (loopMode == LOOP_REC || loopMode == LOOP_DUB)
+      && (kind == 0x90 || kind == 0x80) && loopCount < LOOP_EVENTS)
     loopEvents[loopCount++] = LoopEvent{loopPos, status, d1, d2};
   MidiUSB.sendMIDI({(uint8_t)(status >> 4), status, d1, d2});
   MidiUSB.flush();
@@ -520,6 +527,16 @@ static void loopStop() {
   loopMode = LOOP_OFF;
 }
 
+static void loopUndo() {                             // drop the last layer of the take
+  if (loopMode == LOOP_ARM_REC || loopMode == LOOP_REC
+      || loopMode == LOOP_ARM_DUB || loopMode == LOOP_DUB) return;
+  if (!loopLayerCount) return;
+  loopOffs();                                        // let go of the notes still on
+  loopLayerCount--;
+  loopCount = loopLayerCount ? loopLayerStart[loopLayerCount] : 0;
+  if (!loopCount) loopMode = LOOP_OFF;
+}
+
 static void setLoopBars(uint8_t bars) {
   bars = constrain(bars, 1, 4);
   if (bars == loopBars) return;
@@ -529,8 +546,15 @@ static void setLoopBars(uint8_t bars) {
 
 static void setLoop(uint8_t value) {
   if (value == 0) {
-    if (loopMode == LOOP_REC) loopCount = 0;         // an aborted take is discarded
+    bool rec = loopMode == LOOP_REC;
+    bool dub = loopMode == LOOP_DUB;
     loopStop();
+    if (rec) {
+      loopCount = 0;                                 // an aborted take is discarded
+      loopLayerCount = 0;
+    } else if (dub) {
+      loopCount = loopDubBase;                       // an aborted pass is discarded
+    }
   } else if (value == 1) {
     if (!loopCount) return;
     loopStop();
@@ -538,21 +562,40 @@ static void setLoop(uint8_t value) {
   } else if (value == 2) {
     loopStop();
     loopCount = 0;
+    loopLayerCount = 0;
     loopMode = LOOP_ARM_REC;
   } else if (value == 3) {
     loopStop();
     loopCount = 0;
+    loopLayerCount = 0;
+  } else if (value == 4) {
+    if (!loopCount) {                                // nothing to layer on: a new take
+      loopStop();
+      loopCount = 0;
+      loopLayerCount = 0;
+      loopMode = LOOP_ARM_REC;
+      return;
+    }
+    if (loopLayerCount >= LOOP_LAYERS) return;
+    loopStop();
+    loopDubBase = loopCount;
+    loopMode = LOOP_ARM_DUB;
+  } else if (value == 5) {
+    loopUndo();
   }
 }
 
 static void loopFire() {
-  for (uint16_t i = 0; i < loopCount; i++) {
+  uint16_t limit = loopMode == LOOP_DUB ? loopDubBase : loopCount;
+  loopFiring = true;
+  for (uint16_t i = 0; i < limit; i++) {
     if (loopEvents[i].at != loopPos) continue;
     uint8_t note = loopEvents[i].note;
     midi(loopEvents[i].status, note, loopEvents[i].vel);
     if ((loopEvents[i].status & 0xF0) == 0x90) loopNoteBits[note >> 5] |= 1u << (note & 31);
     else loopNoteBits[note >> 5] &= ~(1u << (note & 31));
   }
+  loopFiring = false;
 }
 
 static void loopTick() {
@@ -565,6 +608,23 @@ static void loopTick() {
       if (++loopPos >= loopLengthClocks()) {
         loopPos = 0;
         loopMode = LOOP_PLAY;
+        if (loopCount && loopLayerCount < LOOP_LAYERS) loopLayerStart[loopLayerCount++] = 0;
+        loopFire();
+      }
+      break;
+    case LOOP_ARM_DUB:                               // this tick is the downbeat
+      loopPos = 0;
+      loopMode = LOOP_DUB;
+      loopFire();
+      break;
+    case LOOP_DUB:
+      if (++loopPos >= loopLengthClocks()) {
+        loopPos = 0;
+        loopMode = LOOP_PLAY;
+        if (loopCount > loopDubBase && loopLayerCount < LOOP_LAYERS)
+          loopLayerStart[loopLayerCount++] = loopDubBase;
+        loopFire();
+      } else {
         loopFire();
       }
       break;
@@ -722,7 +782,9 @@ static uint32_t loopColor(int slot, uint32_t now) {
     return slot < lit ? 0x800000 : 0x200000;
   }
   if (loopMode == LOOP_ARM_PLAY) return blink ? 0x008000 : 0;
+  if (loopMode == LOOP_ARM_DUB) return blink ? 0x808000 : 0;
   int beat = (loopPos % CLOCKS_PER_BAR) / 24;        // 0..3 within the bar
+  if (loopMode == LOOP_DUB) return slot == beat ? 0xC0FF40 : 0x202000;
   return slot == beat ? 0x40FF40 : 0x002000;
 }
 
