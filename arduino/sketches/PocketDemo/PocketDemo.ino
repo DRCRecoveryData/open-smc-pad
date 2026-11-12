@@ -18,6 +18,9 @@
 //   - clock: CC 28 = 0 runs the repeat/arp from the internal clock (CC 26 tempo), 1 follows
 //     an external 24-PPQN MIDI clock (start/continue/stop honoured) and falls back to the
 //     internal clock when the host's clock stops
+//   - loop recorder (CC 30: 0 stop, 1 play, 2 record, 3 clear; CC 31: 1..4 bars): it records
+//     the notes the sketch plays against the clock and repeats them; the top-row pads show
+//     the position while it runs (the loop is in RAM, lost on power cycle)
 //   - each pad sends Note On/Off on channel 1, velocity from how hard it is hit
 //   - holding a pad sends polyphonic aftertouch (0xA0) for every note of its chord,
 //     following the pressure (repeating pads are articulated by their retriggers instead)
@@ -55,8 +58,11 @@ static const uint8_t ROOT_CC = 20, SCALE_CC = 21, CHORD_CC = 22;
 static const uint8_t LATCH_CC = 23, RATE_CC = 24, SWING_CC = 25, TEMPO_CC = 26, ARP_CC = 27;
 static const uint8_t SYNC_CC = 28;
 static const uint8_t ARP_OCT_CC = 29;
+static const uint8_t LOOP_CC = 30, LOOP_BARS_CC = 31;
 static const uint8_t NUM_CHORDS = 3;                 // 0 single note, 1 triad, 2 seventh
 static const uint8_t NUM_ARPS = 5;                   // 0 whole chord, 1 up, 2 down, 3 up-down, 4 random
+static const uint16_t CLOCKS_PER_BAR = 96;           // 24 PPQN x 4 beats
+static const uint16_t LOOP_EVENTS = 512;             // notes a take can hold
 static const int EEPROM_ADDR = 64;                   // clear of SMCPadStock's settings at 0
 static const uint32_t SETTINGS_MAGIC = 0x50444B07;   // "PDK" v7 (v6 had no arp octave range)
 static const uint32_t SETTINGS_MAGIC_V6 = 0x50444B06;
@@ -101,6 +107,13 @@ struct Pad {
 
 static Pad pad[16];
 
+struct LoopEvent {
+  uint16_t at;                                       // clock within the loop
+  uint8_t status;                                    // 0x90 note on, 0x80 note off
+  uint8_t note;
+  uint8_t vel;
+};
+
 // note repeat clock: 24 clocks per quarter, one step per RATE_CLOCKS entry
 static const uint8_t RATE_CLOCKS[8] = {24, 16, 12, 8, 6, 4, 3, 2};
 static uint32_t clockCount;
@@ -124,6 +137,15 @@ static uint8_t arpSingle;                            // sounding arp note, 0 = n
 static uint32_t arpGateOffAt;                        // micros; 0 = none
 static uint32_t arpKey;                              // signature of the merged set
 static uint32_t arpVoices;                           // 2 bits per pad: the voices behind it
+
+// loop recorder: what was played, by clock position
+enum { LOOP_OFF, LOOP_ARM_REC, LOOP_REC, LOOP_ARM_PLAY, LOOP_PLAY };
+static uint8_t loopMode;
+static uint8_t loopBars = 2;                         // 1..4, runtime only
+static uint16_t loopPos;
+static uint16_t loopCount;
+static LoopEvent loopEvents[LOOP_EVENTS];
+static uint32_t loopNoteBits[4];                     // notes the playback left sounding
 
 static void settingsDefaults() {
   settings = Settings{SETTINGS_MAGIC, 0, DEFAULT_SCALE, DEFAULT_CHORD, 0, 0, 0, DEFAULT_BPM, 0, 0, 1};
@@ -231,6 +253,9 @@ static uint32_t padColor(int i) {
 }
 
 static void midi(uint8_t status, uint8_t d1, uint8_t d2) {
+  uint8_t kind = status & 0xF0;
+  if (loopMode == LOOP_REC && (kind == 0x90 || kind == 0x80) && loopCount < LOOP_EVENTS)
+    loopEvents[loopCount++] = LoopEvent{loopPos, status, d1, d2};
   MidiUSB.sendMIDI({(uint8_t)(status >> 4), status, d1, d2});
   MidiUSB.flush();
   if (bleStarted && BLEMIDI.connected()) BLEMIDI.send(status, d1, d2);
@@ -480,6 +505,81 @@ static void setRate(uint8_t rate) {
   settingsChanged();
 }
 
+static uint16_t loopLengthClocks() {
+  return (uint16_t)loopBars * CLOCKS_PER_BAR;
+}
+
+static void loopOffs() {                             // silence whatever the playback left on
+  for (int n = 0; n < 128; n++)
+    if (loopNoteBits[n >> 5] & (1u << (n & 31))) midi(0x80 | CH, (uint8_t)n, 0);
+  for (int w = 0; w < 4; w++) loopNoteBits[w] = 0;
+}
+
+static void loopStop() {
+  loopOffs();
+  loopMode = LOOP_OFF;
+}
+
+static void setLoopBars(uint8_t bars) {
+  bars = constrain(bars, 1, 4);
+  if (bars == loopBars) return;
+  loopStop();
+  loopBars = bars;
+}
+
+static void setLoop(uint8_t value) {
+  if (value == 0) {
+    if (loopMode == LOOP_REC) loopCount = 0;         // an aborted take is discarded
+    loopStop();
+  } else if (value == 1) {
+    if (!loopCount) return;
+    loopStop();
+    loopMode = LOOP_ARM_PLAY;
+  } else if (value == 2) {
+    loopStop();
+    loopCount = 0;
+    loopMode = LOOP_ARM_REC;
+  } else if (value == 3) {
+    loopStop();
+    loopCount = 0;
+  }
+}
+
+static void loopFire() {
+  for (uint16_t i = 0; i < loopCount; i++) {
+    if (loopEvents[i].at != loopPos) continue;
+    uint8_t note = loopEvents[i].note;
+    midi(loopEvents[i].status, note, loopEvents[i].vel);
+    if ((loopEvents[i].status & 0xF0) == 0x90) loopNoteBits[note >> 5] |= 1u << (note & 31);
+    else loopNoteBits[note >> 5] &= ~(1u << (note & 31));
+  }
+}
+
+static void loopTick() {
+  switch (loopMode) {
+    case LOOP_ARM_REC:                               // this tick is the downbeat
+      loopPos = 0;
+      loopMode = LOOP_REC;
+      break;
+    case LOOP_REC:
+      if (++loopPos >= loopLengthClocks()) {
+        loopPos = 0;
+        loopMode = LOOP_PLAY;
+        loopFire();
+      }
+      break;
+    case LOOP_ARM_PLAY:
+      loopPos = 0;
+      loopMode = LOOP_PLAY;
+      loopFire();
+      break;
+    case LOOP_PLAY:
+      if (++loopPos >= loopLengthClocks()) loopPos = 0;
+      loopFire();
+      break;
+  }
+}
+
 static void clockTick();
 
 static void setSync(uint8_t sync) {
@@ -519,6 +619,8 @@ static void midiIn() {                               // the next CC 20..26 from 
       else if (p.byte2 == ARP_CC) setArp(p.byte3 > NUM_ARPS - 1 ? NUM_ARPS - 1 : p.byte3);
       else if (p.byte2 == SYNC_CC) setSync(p.byte3 ? 1 : 0);
       else if (p.byte2 == ARP_OCT_CC) setArpOct(p.byte3);
+      else if (p.byte2 == LOOP_CC) setLoop(p.byte3);
+      else if (p.byte2 == LOOP_BARS_CC) setLoopBars(p.byte3);
     }
   }
 }
@@ -544,6 +646,7 @@ static void repeatFire() {
 
 static void clockTick() {
   clockCount++;
+  loopTick();
   if (!settings.rate) return;
   uint8_t grid = RATE_CLOCKS[settings.rate - 1];
   if (clockCount % grid) return;
@@ -611,11 +714,23 @@ void setup() {
   bleStarted = BLEMIDI.begin("SMC-PAD Pocket");
 }
 
+static uint32_t loopColor(int slot, uint32_t now) {
+  bool blink = (now / 250) & 1;
+  if (loopMode == LOOP_ARM_REC) return blink ? 0x800000 : 0;
+  if (loopMode == LOOP_REC) {
+    int lit = (int)loopPos * 4 / loopLengthClocks();
+    return slot < lit ? 0x800000 : 0x200000;
+  }
+  if (loopMode == LOOP_ARM_PLAY) return blink ? 0x008000 : 0;
+  int beat = (loopPos % CLOCKS_PER_BAR) / 24;        // 0..3 within the bar
+  return slot == beat ? 0x40FF40 : 0x002000;
+}
+
 void loop() {
   SMCPad.update();
   midiIn();
   settingsSaveWhenIdle();
-  if (settings.rate) clockRun();
+  if (settings.rate || loopMode) clockRun();
   uint32_t now = millis();
   const Scale &s = SCALES[settings.scale];
   for (int i = 0; i < 16; i++) {
@@ -639,6 +754,8 @@ void loop() {
       if (pad[i].velocity && age < 400) {
         int bright = (255 - (int)(age * 255 / 400)) * pad[i].velocity / 127;
         SMCPad.padColor(i, dim(padColor(i), bright, 255));
+      } else if (loopMode && i >= 12) {
+        SMCPad.padColor(i, loopColor(i - 12, now));  // the top row shows the loop
       } else if (i % s.count == 0) {
         SMCPad.padColor(i, towardWhite(dim(padColor(i), 90, 255), 12));
       } else {

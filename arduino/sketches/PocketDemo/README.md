@@ -14,6 +14,10 @@ listens.
   octaves;
 - holding a pad sends polyphonic aftertouch (`0xA0`) for every note of its chord, following
   the pressure (not while repeating or arpeggiating);
+- the loop recorder captures the notes the pad plays — chords, repeats, arp steps — against
+  the clock and repeats a 1 to 4 bar loop, with the top-row pads showing the position; the
+  loop lives in RAM (lost on power cycle) and keeps the notes as played, so a later key
+  change transposes live play but not the loop;
 - the pad's LED is its colour around the wheel: root pads sit brighter towards white,
   pressure brightens a pad, a repeat or arp step flashes the pads the note came from, and a
   released pad fades out.
@@ -34,6 +38,8 @@ On any channel, from USB or BLE. Everything is kept in flash.
 | 27 | arp: 0 whole chord, 1 up, 2 down, 3 up-down, 4 random |
 | 28 | clock: 0 internal (CC 26 tempo), 1 external 24-PPQN MIDI clock with start/stop, falling back to internal when it stops |
 | 29 | arp octaves: 1..4 (the arp walk repeats the merged notes an octave up) |
+| 30 | loop: 0 stop (the take is kept), 1 play, 2 record a new take (one loop length, then it plays), 3 clear |
+| 31 | loop length: 1..4 bars, default 2 (changing it stops the loop) |
 
 ## On the pad
 
