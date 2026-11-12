@@ -266,7 +266,8 @@ void smcpad_cmd_pads_live(void)
 }
 
 /* W: press the pads in order; for each, which ADC position moved, and light the LED the stock
- * tables put under it. Pad order: 1 = top-left, row by row, left to right. */
+ * tables put under it. Pad order: row by row, left to right; 1 = bottom-left on the Pocket
+ * (its service reports logical pads, 0 = bottom-left) and 1 = top-left on the reference board. */
 void smcpad_cmd_pads_wizard(void)
 {
     /* rows top to bottom: red, green, blue, yellow */
@@ -288,8 +289,13 @@ void smcpad_cmd_pads_wizard(void)
     for (u32 i = 0; i < NPADS; i++) {
         base[i] = acc[i] / 4;
     }
+#if SMCPAD_POCKET
+    smcpad_dbg_puts("press each pad firmly, then let go: 1 = bottom-left, row by row, left to right\r\n"
+                    "(any key aborts)\r\n");
+#else
     smcpad_dbg_puts("press each pad firmly, then let go: 1 = top-left, row by row, left to right\r\n"
                     "(any key aborts)\r\n");
+#endif
 
     for (u32 k = 0; k < NPADS; k++) {
         int best = -1;
@@ -347,7 +353,11 @@ void smcpad_cmd_pads_wizard(void)
         }
     }
 
+#if SMCPAD_POCKET
+    smcpad_dbg_puts("summary: pad (1 = bottom-left) -> ADC position, stock pad, chain LED, rest, peak\r\n");
+#else
     smcpad_dbg_puts("summary: pad (1 = top-left) -> ADC position, stock pad, chain LED, rest, peak\r\n");
+#endif
     for (u32 k = 0; k < NPADS; k++) {
         char line[64], *p = line;
 
