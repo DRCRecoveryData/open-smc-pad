@@ -97,7 +97,9 @@ Still open:
 - power cuts at random points of a DFU transfer and of a bootloader update (hands on the
   switch).
 - the install from the stock firmware after the jlfs.c refactor (same installer logic; needs
-  a power cycle by hand to re-run).
+  a power cycle by hand to re-run). On the Pocket it hangs outright -- see the note under
+  "Installing from the stock firmware"; `host/maskrom.py install-boot` is the way in until
+  that is fixed.
 
 ## Boot decision (fw/boot/boot.c, runs in place from flash)
 
@@ -165,6 +167,12 @@ application in one run, the only manual step a power cycle.
    restarting every 256 bytes -- the same on every chip) and writes it raw, so the physical
    sector is known exactly and only the one 32-byte entry changes (offset + CRC16, each entry
    ENC-ciphered with 0xFFFF on its own). On a mismatch the original sector goes back.
+   The installer runs with the running firmware's SFC window still in force, so the script
+   takes the VM entry from the pad's own directory (0x25000/0x54000 on the Pocket, flash
+   0x26000) and packages the installer with it. That makes `erase_end` the VM's flash start
+   and decides storage: **the installer is written plaintext whenever 0x41000 lies above the
+   window** (the Pocket), encrypted below it (the reference board, VM at 0x71000 only after
+   the bootloader is in).
 2. Power cycle: the uboot runs the installer (from RAM, SFC parked). It checks the staging
    area; if it does not hold up it points sector 0 back at 0x1000 and the untouched stock
    firmware boots again. Otherwise it erases 0x1000..0x26000, writes the bootloader encrypted
@@ -173,6 +181,16 @@ application in one run, the only manual step a power cycle.
    simply runs again at the next boot. Afterwards sector 0 is byte for byte the factory one.
 3. The bootloader finds no application, comes up in DFU mode, and the script runs
    host/dfu_flash.sh.
+
+**On the Pocket pad this path hung (2026-11-12)**, after the sector-0 switch and before the
+installer's step 1: 0x1000..0x26000 stayed stock, the IDG page at 0x4C000 read all `FF` (so
+`install_main` never made it to its first `diag()`), and the pad enumerated as nothing. The
+breadcrumb at 0x31AD0 and the IDG page are the places to look with `memread` while the
+installer is still up; the hang itself is open (`.start`/stack switch, or `flash_begin()`
+against the uboot's continuous-read mode). Recovered through the ROM loader:
+`host/maskrom.py install-boot` wrote the bootloader area and pointed sector 0 back at 0x1000,
+then `host/dfu_flash.sh` installed the application. Until the hang is understood, the MaskROM
+path is the supported install.
 
 The installer leaves a record at 0x4C000 ("IDG1", step << 4 | result, SR1/SR2 before and after
 its unprotect, result of the unprotect; 0x3F = done) and a breadcrumb in RAM at 0x31AD0.
@@ -198,6 +216,13 @@ mapping set up for the bootloader stays, and the application is linked at 0x1E08
   descriptor was fine. Fixed with `-mllvm -enable-ipra=false` in fw/boot/build.sh. The SDK build
   is LTO, where the strong definition is visible, so it is not affected; **any non-LTO build with
   weak callbacks (the Arduino core) needs the flag**.
+- **The stock uboot hands over in continuous-read mode (SFC_CON 8..11 = 6 or 7).** No command
+  is accepted until the burst is ended, so the first `flash_begin()` on the Pocket failed (the
+  installer then never opens USB: completely dark pad). `flash_begin()` now ends the mode the way
+  the SDK's `exit_continue_mode` does (CS low, two 0xFF bytes, four for mode 7, CS high) before
+  the first SPI command. There is no re-entry: the installer and DFU mode never read through the
+  SFC again. The application's own driver refuses 6/7 for the same reason; it is only used by the
+  bring-up console, whose calls can exit the mode first.
 - The JieLi `objcopy` takes exactly one `-j`: `.start` and `.ram` are dumped separately and
   concatenated (boot.ld asserts they are contiguous).
 - `.start` code must call only `.start` code and use no `.rodata` (no switches, no tables, no
