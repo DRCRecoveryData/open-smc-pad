@@ -10,18 +10,16 @@
 // The SMC-PAD stays connected to the computer through the tapped cable.
 //
 // Use: open the serial monitor (or just watch the LED), then power on the SMC-PAD.
-// LED fast blink = sending key, solid = chip entered UBOOT, slow blink = timed out.
+// RGB status on the RP2040-Zero's WS2812 (GP16): blue blink = keying, solid green = the
+// chip took the USB_KEY, red blink = timed out. A plain Pico's GP25 LED, when the variant
+// declares one, mirrors on/off.
 // Send 'r' over serial (or press the board's RESET button) to start an attempt; 'x' aborts
 // one; 'd' replugs the pad as far as the host can tell; 't' checks with the pad off whether
 // the data lines really reach the computer; 'k' pulses D+ high for 30 ms.
 
 #include <Arduino.h>
 
-// RP2040-Zero has no plain LED (a WS2812 sits on GP16), and its variant declares no
-// LED_BUILTIN: status is on the serial console there.
-#ifndef LED_BUILTIN
-#define LED_BUILTIN 25
-#endif
+constexpr uint PIN_WS2812 = 16;       // RP2040-Zero: its only LED, a WS2812
 
 constexpr uint PIN_DP = 2;            // D+ : clock, data latched on rising edge
 constexpr uint PIN_DM = 3;            // D- : data, MSB first
@@ -45,6 +43,36 @@ static void driveBus() {
   gpio_set_dir(PIN_DM, GPIO_OUT);
 }
 
+#ifndef F_CPU
+#define F_CPU 133000000UL
+#endif
+
+// subs+bne take 3 cycles per iteration on this core.
+static inline void spinNs(uint32_t ns) {
+  uint32_t n = (uint32_t)(((uint64_t)F_CPU * ns) / 3000000000ULL);
+  asm volatile("1: sub %0, #1\n\tbne 1b" : "+l"(n) : : "cc");
+}
+
+// Status colour on the WS2812 (GRB, 1.25 us bits, then the reset gap); a plain LED on the
+// variant's LED_BUILTIN pin, when there is one, mirrors on/off.
+static void statusRGB(uint8_t r, uint8_t g, uint8_t b) {
+  uint32_t grb = ((uint32_t)g << 16) | ((uint32_t)r << 8) | b;
+  gpio_set_dir(PIN_WS2812, GPIO_OUT);
+  noInterrupts();
+  for (int i = 23; i >= 0; i--) {
+    bool one = (grb >> i) & 1;
+    gpio_put(PIN_WS2812, 1);
+    spinNs(one ? 750 : 350);
+    gpio_put(PIN_WS2812, 0);
+    spinNs(one ? 500 : 900);
+  }
+  interrupts();
+  delayMicroseconds(300);
+#ifdef LED_BUILTIN
+  digitalWrite(LED_BUILTIN, (r | g | b) != 0);
+#endif
+}
+
 // D+ is only ever released while the clock is low, so seeing it high means the chip
 // has acknowledged the key and enabled its 1.5k pull-up for SOF calibration. Sense with the
 // internal pull-down on: a released line with nothing on it otherwise keeps its last level in
@@ -66,14 +94,15 @@ static bool chipPulledUp() {
 // edges on that line before it brings its USB up. An idle host port sends no SOFs, so the chip
 // locks onto noise and its PLL comes up wrong -- the host then never enumerates it. Give it the
 // edges ourselves: 10 us low every 1 ms, until it drops its pull-up (calibration over).
-static void clockTrain() {
+// True only if the pull-up went away: a running firmware keeps it up, so that is no success.
+static bool clockTrain() {
   for (uint32_t i = 0; i < TRAIN_PULSES; i++) {
     gpio_set_dir(PIN_DP, GPIO_IN);
     gpio_pull_down(PIN_DP);
     busy_wait_us_32(SENSE_US);
     if (!gpio_get(PIN_DP)) {                // pull-up gone (or host reset): done
       gpio_disable_pulls(PIN_DP);
-      return;
+      return true;
     }
     gpio_disable_pulls(PIN_DP);
     gpio_put(PIN_DP, 0);
@@ -82,15 +111,17 @@ static void clockTrain() {
     gpio_set_dir(PIN_DP, GPIO_IN);
     busy_wait_us_32(1000 - 10 - SENSE_US);
   }
+  return false;
 }
 
-// Returns true once the chip has taken the bus.
-static bool sendKeyOnce() {
+// 1 = the chip took the bus, -1 = a pull-up that never dropped (a firmware is running,
+// not the ROM), 0 = no acknowledgement yet.
+static int sendKeyOnce() {
   for (int bit = 15; bit >= 0; bit--) {
     if (chipPulledUp()) {
-      clockTrain();
+      bool ok = clockTrain();
       releaseBus();
-      return true;
+      return ok ? 1 : -1;
     }
     gpio_put(PIN_DM, (USB_KEY >> bit) & 1);
     busy_wait_us_32(HALF_PERIOD_US - SENSE_US);
@@ -98,18 +129,21 @@ static bool sendKeyOnce() {
     busy_wait_us_32(HALF_PERIOD_US);
     gpio_put(PIN_DP, 0);
   }
-  return false;
+  return 0;
 }
 
 // D+ high before the chip was ever seen low is not an acknowledgement: it is a firmware still
 // attached to the host (full-speed idle), or one that dropped off USB but left its pull-up on.
 // Leave the lines alone until D+ goes low, then start keying. The pull-down keeps a line with
 // nothing on it from reading the level the pad's input capacitance kept from the last drive.
+// SENSE_US is too short here: the tapped cable's capacitance holds its last level longer,
+// so a floating line read that fast looks high and the attempt never arms. Settle with the
+// probe time instead (the host's 15k pull-downs still win on a connected, idle bus).
 static bool dpReleasedHigh() {
   gpio_set_dir(PIN_DP, GPIO_IN);
   gpio_set_dir(PIN_DM, GPIO_IN);
   gpio_pull_down(PIN_DP);
-  busy_wait_us_32(SENSE_US);
+  busy_wait_us_32(PROBE_US);
   bool up = gpio_get(PIN_DP);
   gpio_disable_pulls(PIN_DP);
   return up;
@@ -184,6 +218,7 @@ static int pollSerial() {
 static void runAttempt() {
   Serial.println("Sending USB_KEY 0x16EF - power on the SMC-PAD now...");
   releaseBus();
+  statusRGB(0, 0, 0);
   bool armed = false;
   uint32_t start = millis(), keys = 0, lastBlink = 0;
   bool led = false;
@@ -192,7 +227,7 @@ static void runAttempt() {
     if (c == 'x') {
       releaseBus();
       Serial.println("Aborted.");
-      digitalWrite(LED_BUILTIN, LOW);
+      statusRGB(0, 0, 0);
       return;
     }
     if (c == 'r') {
@@ -220,25 +255,39 @@ static void runAttempt() {
       Serial.println("D+ low: keying.");
       driveBus();
     }
-    if (sendKeyOnce()) {
-      digitalWrite(LED_BUILTIN, HIGH);
+    int r = sendKeyOnce();
+    if (r == 1) {
+      statusRGB(0, 60, 0);                 // solid green: the key was accepted
       Serial.printf("OK: chip took the bus after %lu keys (%lu ms). Bus released.\n",
                     keys, millis() - start);
       Serial.println("The SMC-PAD should now enumerate as a UBOOT mass-storage device.");
       return;
     }
+    if (r < 0) {
+      Serial.println("D+ pulled up but never dropped: a firmware is running, not the ROM.");
+      Serial.println("Power the pad off, then send 'r'.");
+      for (int i = 0; i < 3; i++) {        // red blink
+        statusRGB(60, 0, 0);
+        delay(300);
+        statusRGB(0, 0, 0);
+        delay(300);
+      }
+      return;
+    }
     keys++;
     if (millis() - lastBlink > 50) {
       led = !led;
-      digitalWrite(LED_BUILTIN, led);
+      statusRGB(0, 0, led ? 60 : 0);       // blue blink: keying
       lastBlink = millis();
     }
   }
   releaseBus();
   Serial.println("Timeout: no response. Check wiring, then send 'r' to retry.");
-  for (int i = 0; i < 6; i++) {
-    digitalWrite(LED_BUILTIN, i & 1);
-    delay(500);
+  for (int i = 0; i < 3; i++) {            // red blink: timed out
+    statusRGB(60, 0, 0);
+    delay(300);
+    statusRGB(0, 0, 0);
+    delay(300);
   }
 }
 
@@ -252,7 +301,9 @@ static void replug() {
 }
 
 void setup() {
+#ifdef LED_BUILTIN
   pinMode(LED_BUILTIN, OUTPUT);
+#endif
   gpio_init(PIN_DP);
   gpio_init(PIN_DM);
   gpio_disable_pulls(PIN_DP);
@@ -270,7 +321,7 @@ void loop() {
   if (c == 'p') probeLines();
   if (c == 'k') connectTest();
   if (c == 'r') {
-    digitalWrite(LED_BUILTIN, LOW);
+    statusRGB(0, 0, 0);
     runAttempt();
   }
 }

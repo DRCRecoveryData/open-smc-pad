@@ -74,6 +74,11 @@ The firmware replaces the stock one in the app area; sector 0 / uboot stay facto
    enumerated, probe the thin wires one at a time on GP2 (`p` on the Pico): only the real D+
    reads `HIGH`. Tape or a clip on the jacket is not a connection — solder to bare copper, with
    strain relief: an intermittent joint reads exactly like "the key never arrives".
+   An ESP32-S3-DevKitC-1 can replace the Pico with the same protocol and commands:
+   [`hw/jl-usbkey-s3`](../hw/jl-usbkey-s3) (GPIO4 to D+, GPIO5 to D-, GND), console on its
+   UART USB-C port (the CP210x one, `Serial` = UART0). Its second USB-C port does not remove
+   the tap: the pad still enumerates on the computer, so the S3 sits in parallel on the data
+   lines just like the Pico.
 4. Once per machine: build and install the root helper (see below).
 5. `host/flash_fw.sh` — or `host/flash_fw.sh stock` to put the factory firmware back. **Runs as
    you, no password.** If our firmware is running it enters download mode by itself; otherwise it
