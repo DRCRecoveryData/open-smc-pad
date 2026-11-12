@@ -4,7 +4,7 @@
 /*
  *  Board selection
  */
-#define CONFIG_BOARD_SMCPAD          // M-VAVE SMC-PAD, PCB SK12-V2.1 (AC6966C)
+#define CONFIG_BOARD_SMCPAD          // M-VAVE SMC-PAD (AC6966C): Pocket SK16-V03 and SK12-V2.1
 
 #include "board_smcpad_cfg.h"
 #include "board_ac636n_demo_cfg.h"

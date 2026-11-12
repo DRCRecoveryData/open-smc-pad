@@ -80,4 +80,5 @@ which is why `host/update.py` writes 63 bytes at a time when it talks to an SDK-
 - macOS kernel log: `log show --predicate 'process == "kernel" AND sender == "IOUSBHostFamily"'`
   shows enumeration, control-transfer timeouts and "hardware connection lost".
 
-The development id is pid.codes' test VID/PID `1209:0001`, product "SMC-PAD open fw".
+The development id is pid.codes' test VID/PID `1209:0001`, product "M-Vave SMC-PAD Pocket open
+fw" (the build before the Pocket rename advertised "SMC-PAD open fw").

@@ -1,6 +1,6 @@
 <h1 align="center">open-smc-pad</h1>
 
-<p align="center"><b>Open firmware for the M-Vave SMC-PAD</b><br>
+<p align="center"><b>Open firmware for the M-Vave SMC-PAD Pocket (SK16)</b><br>
 a bootloader, an Arduino core and a step sequencer for a 16-pad MIDI controller</p>
 
 <p align="center"><img src="https://raw.githubusercontent.com/fedepaj/groovebox/main/docs/img/hero.gif" width="648" alt="GrooveBox running on the SMC-PAD"></p>
@@ -12,9 +12,11 @@ a bootloader, an Arduino core and a step sequencer for a 16-pad MIDI controller<
 <img src="https://img.shields.io/badge/Bluetooth-BLE--MIDI-555" alt="BLE-MIDI">
 </p>
 
-The [M-Vave SMC-PAD](https://www.m-vave.com) is an inexpensive pad controller: 16 RGB
-velocity- and pressure-sensitive pads, 8 endless knobs, 10 buttons, USB-C, Bluetooth MIDI and a
-battery. Inside is a JieLi AC6966C, a Bluetooth audio chip that nobody writes firmware for.
+The [M-Vave SMC-PAD Pocket](https://www.m-vave.com) (SK16-V03) is an inexpensive pad
+controller: 16 RGB velocity- and pressure-sensitive pads, USB-C, Bluetooth MIDI and a battery.
+The full-size SMC-PAD (SK12) adds 8 endless knobs and 10 buttons; this firmware builds for both
+boards (`SMCPAD_POCKET=1` for the Pocket, which is the one verified on hardware). Inside is a
+JieLi AC6966C, a Bluetooth audio chip that nobody writes firmware for.
 
 This project replaces its firmware, completely and reversibly, with one you can read and change:
 

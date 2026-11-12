@@ -73,12 +73,12 @@ divider (`docs/hardware.md`). TIMER3 counts the crystal, so time was never affec
 
 ## The console firmware
 
-Status (2026-10-20): **works end to end with macOS.** Scan (bleak): "SMC-PAD" with the MIDI
-service UUID, RSSI -40. GATT: the MIDI characteristic with read / write-without-response /
-notify, empty read; BLE-MIDI written to it is parsed on the pad. Audio MIDI Setup > Bluetooth
-> Connect gives a CoreMIDI port "SMC-PAD Bluetooth"; with the console's `K` the pads arrive as
-note on/off pairs, notes 36..51, velocity following the pressure (44 messages in 60 s of
-playing, none lost). USB (CDC console) keeps working alongside.
+Status (2026-10-20, name updated 2026-11-12): **works end to end with macOS.** Scan (bleak):
+"SMC-PAD Pocket" with the MIDI service UUID, RSSI -40. GATT: the MIDI characteristic with read /
+write-without-response / notify, empty read; BLE-MIDI written to it is parsed on the pad. Audio
+MIDI Setup > Bluetooth > Connect gives a CoreMIDI port "SMC-PAD Pocket Bluetooth"; with the
+console's `K` the pads arrive as note on/off pairs, notes 36..51, velocity following the pressure
+(44 messages in 60 s of playing, none lost). USB (CDC console) keeps working alongside.
 
 The stock firmware does standard **BLE-MIDI** (its image carries the service
 `03B80E5A-EDE8-4B33-A751-6CE34EC4C700` and characteristic
@@ -88,7 +88,7 @@ The stock firmware does standard **BLE-MIDI** (its image carries the service
 
 - GATT (BTstack compiled format, written by hand): GAP service with the device name, the MIDI
   service with the MIDI I/O characteristic (read = empty, write without response, notify) and
-  its CCC. Advertising: flags + the 128-bit MIDI service UUID; scan response: "SMC-PAD".
+  its CCC. Advertising: flags + the 128-bit MIDI service UUID; scan response: "SMC-PAD Pocket".
   "Just works" pairing with bonding.
 - Outgoing: one MIDI message per packet, header + timestamp from `jiffies_msec()`
   (`blemidi_send`). Incoming: full parser (timestamps, running status, real time; SysEx
@@ -103,5 +103,5 @@ The stock firmware does standard **BLE-MIDI** (its image carries the service
   and the console keep working with BLE running (selftest passes).
 
 To test from a Mac: console `Y`, then Audio MIDI Setup > Window > Show MIDI Studio >
-Bluetooth (Configure Bluetooth) > Connect "SMC-PAD"; then `K` and press pads with a MIDI
+Bluetooth (Configure Bluetooth) > Connect "SMC-PAD Pocket"; then `K` and press pads with a MIDI
 monitor open.

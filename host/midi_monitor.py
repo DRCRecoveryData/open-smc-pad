@@ -18,7 +18,7 @@ def main():
     secs = float(args[0]) if args and not args[0].startswith("--") else 60
     port = next((n for n in mido.get_input_names() if "SMC" in n), None)
     if not port:
-        sys.exit(f"no SMC-PAD MIDI port in {mido.get_input_names()}")
+        sys.exit(f"no SMC-PAD Pocket MIDI port in {mido.get_input_names()}")
     out = mido.open_output(next(n for n in mido.get_output_names() if "SMC" in n))
     if "--mackie" in args:
         out.send(mido.Message("note_on", note=0x18, velocity=127))

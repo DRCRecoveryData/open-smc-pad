@@ -1,13 +1,40 @@
 # SMC-PAD hardware map
 
-Board `SK12-V2.1 2024/04/29`. MCU **JieLi AC6966C** (AC696N/AC636N family, BR25, pi32v2, QFN32,
-4 Mbit internal flash, 24 MHz crystal). Pin roles below are recovered from the stock firmware
-`SMC-PAD_004` (`re/disasm/app004.dis`, VMA `0x1E00120`) unless marked *board*.
+Two boards share this firmware: the **M-Vave SMC-PAD Pocket (SK16-V03)**, the board this fork
+is verified on, and the full-size **SMC-PAD (SK12-V2.1)** reference board. The Pocket comes
+first; from [the SK12 pin map](#sk12-pin-map-reference-board) on, everything describes the
+reference board, recovered from the stock firmware `SMC-PAD_004` (`re/disasm/app004.dis`, VMA
+`0x1E00120`) unless marked *board*.
 
 Confidence: **fw** = read directly from register/pin constants in the firmware;
 **infer** = deduced from code behaviour, needs a continuity check.
 
-## Pin map
+## SMC-PAD Pocket (SK16-V03) — the verified board
+
+Same MCU and flash (JieLi AC6966C, 4 Mbit), same 16 RGB pads and WS2812-style chain, but no key
+matrix, no encoders and no button LEDs. The stock Pocket firmware's scan order lives in ROM, so
+this map comes from our port (`fw/smcpad/arduino/smcpad_hw.c`, tables in `#if SMCPAD_POCKET`)
+and from the bring-up console's pad wizard (`W`), which was run on the board (2026-11-12): every
+pad reads (rest 0-1, peak 237-936) and lights the chain LED under the finger.
+
+| Pin | Role | Evidence |
+|---|---|---|
+| PA0, PA1, PA3, PA4, PB7, PC2, PC4, PC5 | eight pad FSRs direct to SAR channels (ch 0, 1, 2, 3, 9, 10, 11, 12) | fw + measured |
+| PA6 | HCF4051 COM → ADC ch4 (the other eight pads) | fw + measured |
+| PA5, PC1, PC3 | HCF4051 selects S0/S1/S2 (shared by the one mux) | fw + measured |
+| PB1 | pad RGB LED data (WS2812-style, SPI1 DO map A, DMA) | fw + measured |
+| USBDP/USBDM | USB device (CDC console / MIDI) | board |
+| PD0–PD4 | internal SPI flash | standard JieLi |
+
+The pad service scans eight direct channels and the eight mux positions on a TIMER3 tick; the
+position → pad and pad → chain LED tables live in `smcpad_hw.c` (`pocket_direct_*`,
+`pocket_mux_pad`, `pad_to_led`). The select bit order is the stock one as far as we can tell;
+the pad remap table absorbs any mistake, which is why the wizard checks the LEDs too.
+
+## SK12 pin map (reference board)
+
+Board `SK12-V2.1 2024/04/29`. MCU **JieLi AC6966C** (AC696N/AC636N family, BR25, pi32v2, QFN32,
+4 Mbit internal flash, 24 MHz crystal).
 
 | Pin | Role | Evidence | Conf. |
 |---|---|---|---|

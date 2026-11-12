@@ -45,7 +45,7 @@ void setup() {
     Serial.println("BLE did not start");
     while (1) delay(1000);
   }
-  BLE.setLocalName("SMC-PAD");
+  BLE.setLocalName("SMC-PAD Pocket");
   BLE.setAdvertisedService(padService);
   hitChar.addDescriptor(hitLabel);
   padService.addCharacteristic(hitChar);

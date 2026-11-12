@@ -18,7 +18,7 @@ import zlib
 
 import serial
 
-NAMES = ("SMC-PAD open fw", "USB Composite Device")
+NAMES = ("M-Vave SMC-PAD Pocket open fw", "SMC-PAD open fw", "USB Composite Device")
 
 
 def find_port():

@@ -26,7 +26,8 @@ else
     IMAGE="${1:-$ROOT/work/flash/fw_area.bin}"
 fi
 DFU_ID=1209:0002                         # fw/boot/usb_desc.c
-APP_NAME="SMC-PAD open fw"               # the application's USB product name
+APP_NAME="M-Vave SMC-PAD Pocket open fw"  # the application's USB product name (iProduct)
+APP_NAME_LEGACY="SMC-PAD open fw"         # builds from before the Pocket rename
 
 die() { echo "!! $*" >&2; exit 1; }
 command -v dfu-util >/dev/null || die "dfu-util not found (brew install dfu-util)"
@@ -35,9 +36,13 @@ command -v dfu-util >/dev/null || die "dfu-util not found (brew install dfu-util
 in_dfu()   { local l; l="$(dfu-util -l 2>/dev/null)"; grep -q "\[$DFU_ID\]" <<<"$l"; }
 app_port() {
     if command -v ioreg >/dev/null; then         # macOS
-        local r; r="$(ioreg -r -n "$APP_NAME" -l -w 0 2>/dev/null || true)"
-        grep -m1 '"IOCalloutDevice"' <<<"$r" | cut -d'"' -f4
-        return
+        local n r
+        for n in "$APP_NAME" "$APP_NAME_LEGACY"; do
+            r="$(ioreg -r -n "$n" -l -w 0 2>/dev/null || true)"
+            r="$(grep -m1 '"IOCalloutDevice"' <<<"$r" | cut -d'"' -f4 || true)"
+            if [ -n "$r" ]; then echo "$r"; return 0; fi
+        done
+        return 0
     fi
     local p=$(ls /dev/serial/by-id/*SMC-PAD* 2>/dev/null | head -1)   # Linux
     if [ -n "$p" ]; then readlink -f "$p"; return; fi

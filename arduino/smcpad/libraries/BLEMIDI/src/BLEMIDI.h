@@ -31,7 +31,7 @@ typedef struct {
 class BLEMIDI_ {
 public:
     /* starts BLE (if needed) and advertises as a MIDI device; 1 when BLE is up */
-    int begin(const char *name = "SMC-PAD");
+    int begin(const char *name = "SMC-PAD Pocket");
     bool connected();                       /* a central listens (subscribed) */
 
     /* MIDIUSB API */

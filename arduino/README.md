@@ -1,8 +1,9 @@
 # The SMC-PAD Arduino core
 
-**An Arduino core for the M-Vave SMC-PAD**: write sketches for its 16 RGB velocity pads,
-8 knobs, 10 buttons, USB-MIDI and Bluetooth MIDI, and upload them over USB like any Arduino
-board. Part of the [open SMC-PAD firmware](..).
+**An Arduino core for the M-Vave SMC-PAD Pocket (SK16)** (and the full-size SMC-PAD, SK12):
+write sketches for its 16 RGB velocity pads, USB-MIDI and Bluetooth MIDI (the full-size board
+adds 8 knobs and 10 buttons), and upload them over USB like any Arduino board. Part of the
+[open SMC-PAD firmware](..).
 
 <p align="center"><img src="https://raw.githubusercontent.com/fedepaj/groovebox/main/docs/img/play-mode.gif" width="560" alt="A sketch running on the SMC-PAD (in the emulator)"></p>
 

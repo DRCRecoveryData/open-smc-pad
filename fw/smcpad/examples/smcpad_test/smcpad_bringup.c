@@ -1,5 +1,5 @@
 /*
- * SMC-PAD bring-up console, over the USB CDC serial (fw/smcpad/smcpad_dbg.c).
+ * SMC-PAD Pocket bring-up console, over the USB CDC serial (fw/smcpad/smcpad_dbg.c).
  *
  * The firmware boots fine now, but the button LEDs never react to anything we drive, and the
  * wiring we inferred from the stock firmware is only a guess: the 595 pins (PB6 clock, PB7
@@ -687,7 +687,13 @@ static void cmd_help(void)
         "  n [<i> <rrggbb>]  pad RGB: chain LED i only (n a <rrggbb> = all, n = off)\r\n"
         "  N                 walk the RGB chain one LED at a time\r\n"
         "bluetooth:\r\n"
-        "  Y                 start BLE-MIDI (advertises as SMC-PAD); again = status\r\n"
+        "  Y                 start BLE-MIDI "
+#if SMCPAD_POCKET
+        "(advertises as SMC-PAD Pocket)"
+#else
+        "(advertises as SMC-PAD)"
+#endif
+        "; again = status\r\n"
         "  K                 play the pads over BLE-MIDI (notes 36..51, LEDs follow)\r\n"
         "  X <mode> [n] [sector]  flash-death bisection: 0 irq-off spin, 1 +SFC off/on,\r\n"
         "                    2 +status polls, 3 +WREN/WRDI, 4 +real erase\r\n"
@@ -2096,7 +2102,11 @@ void smcpad_bringup_start(void)
     }
 #endif
 
+#if SMCPAD_POCKET
+    smcpad_dbg_puts("\r\n=== M-Vave SMC-PAD Pocket open firmware: bring-up console ===\r\n");
+#else
     smcpad_dbg_puts("\r\n=== SMC-PAD open firmware: bring-up console ===\r\n");
+#endif
     smcpad_dbg_puts("build " __DATE__ " " __TIME__ "\r\n");
     fault_report();
     crumb_report();

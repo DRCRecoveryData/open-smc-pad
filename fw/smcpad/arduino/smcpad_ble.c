@@ -24,6 +24,7 @@
 #include "le_gatt_common.h"
 #include "app_comm_bt.h"
 #include "smcpad_rt.h"
+#include "smcpad_usb_cfg.h"
 
 #if TCFG_USER_BLE_ENABLE
 
@@ -45,7 +46,11 @@ static const u8 *profile = empty_profile;
 static u16 profile_len = sizeof(empty_profile);
 static u32 ccc_map[8];                      /* CCC handles 0..255 of the profile */
 static u16 service_changed;                  /* its 0x2A05 value, if it has one */
+#if SMCPAD_POCKET
+static char name[32] = "SMC-PAD Pocket";   /* the M-Vave SMC-PAD Pocket (SK16) */
+#else
 static char name[32] = "SMC-PAD";
+#endif
 static u8 started, ready, module_on, want_adv;
 static volatile u16 con_handle, mtu = 23;
 static u8 central_addr[6];

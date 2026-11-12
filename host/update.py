@@ -20,8 +20,8 @@ import zlib
 
 import serial
 
-# our firmware with the JieLi SDK's USB stack, and with TinyUSB
-NAMES = ("USB Composite Device", "SMC-PAD open fw")
+# our firmware with TinyUSB, TinyUSB before the Pocket rename, and the JieLi SDK's USB stack
+NAMES = ("M-Vave SMC-PAD Pocket open fw", "SMC-PAD open fw", "USB Composite Device")
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CHUNK = 1024
 # The JieLi SDK's USB stack loses runs of full 64-byte packets (its bulk read and the

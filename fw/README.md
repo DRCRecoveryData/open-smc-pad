@@ -14,7 +14,7 @@ binaries. This is for changing the bootloader, the drivers or the runtime API.
 | `smcpad/arduino/` | the runtime: `smcpad_rt.h` (the API sketches build on), pads / keys / encoders / LEDs service, BLE GATT server, timing, storage |
 | `smcpad/usb/` | our USB device driver for the BR25 (TinyUSB `dcd_br25.c`), CDC + MIDI descriptors |
 | `smcpad/smcpad_flash.c` | flash erase / program with bounded waits (the SDK's own path can hang) |
-| `smcpad/` (rest) | the JieLi AC63 SDK application, configured for the SMC-PAD (see [NOTICE](NOTICE)) |
+| `smcpad/` (rest) | the JieLi AC63 SDK application, configured for the M-Vave SMC-PAD Pocket and the SMC-PAD reference board (see [NOTICE](NOTICE)) |
 | `build.sh` | builds the firmware in Docker |
 
 ## Flash layout

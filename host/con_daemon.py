@@ -19,8 +19,8 @@ import time
 
 import serial
 
-# our firmware with the JieLi SDK's USB stack, and with TinyUSB
-NAMES = ("USB Composite Device", "SMC-PAD open fw")
+# our firmware with the JieLi SDK's USB stack, with TinyUSB, and TinyUSB before the Pocket rename
+NAMES = ("M-Vave SMC-PAD Pocket open fw", "SMC-PAD open fw", "USB Composite Device")
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LOG = os.path.join(ROOT, "work", "con.log")
 FIFO = os.path.join(ROOT, "work", "con.in")     # host/console.py writes commands here

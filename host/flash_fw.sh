@@ -33,7 +33,8 @@ UBOOT_VID=19530          # 0x4C4A, JieLi: the ROM loader *and* our firmware
 OUR_PID=16725            # 0x4155, our firmware's CDC
 APP_VID=17235            # 0x4353, the stock firmware (SINCO)
 OUR_NAME="USB Composite Device"         # our firmware with the JieLi SDK's USB stack
-OUR_NAME_TUSB="SMC-PAD open fw"         # ... with TinyUSB (pid.codes test id 1209:0001)
+OUR_NAME_TUSB="M-Vave SMC-PAD Pocket open fw"   # ... with TinyUSB (pid.codes test id 1209:0001)
+OUR_NAME_TUSB_LEGACY="SMC-PAD open fw"          # ... builds from before the Pocket rename
 
 case "$MODE" in
     fw)    IMAGE="$ROOT/work/flash/fw_area_raw.bin"
@@ -83,8 +84,8 @@ sudo -n -l "$HELPER" >/dev/null 2>&1 || die "no passwordless sudo rule for $HELP
 bus()            { ioreg -p IOUSB -l -w 0 2>/dev/null || true; }
 bus_has()        { local b; b="$(bus)"; grep -qiE "$1" <<<"$b"; }
 usb_has()        { bus_has "\"idVendor\" = $1\$"; }
-our_fw_present() { bus_has "\"idProduct\" = $OUR_PID\$|\"USB Product Name\" = \"SMC.PAD open fw\""; }
-our_port()       { local p; p="$(port_of "$OUR_NAME")"; [ -n "$p" ] || p="$(port_of "$OUR_NAME_TUSB")"; echo "$p"; }
+our_fw_present() { bus_has "\"idProduct\" = $OUR_PID\$|SMC.PAD (Pocket )?open fw"; }
+our_port()       { local p; p="$(port_of "$OUR_NAME")"; [ -n "$p" ] || p="$(port_of "$OUR_NAME_TUSB")"; [ -n "$p" ] || p="$(port_of "$OUR_NAME_TUSB_LEGACY")"; echo "$p"; }
 stock_present()  { usb_has "$APP_VID"; }
 # The loader calls itself "BR25UBOOT1.00" in its *vendor* string; fall back to "a JieLi device
 # that is not our firmware" in case another chip words it differently.

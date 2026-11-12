@@ -285,7 +285,7 @@ static void showButtonLeds() {
 static void bluetoothApply() {
   if (settings.bluetooth) {
     if (!bleStarted) {
-      bleStarted = BLEMIDI.begin("SMC-PAD");
+      bleStarted = BLEMIDI.begin("SMC-PAD Pocket");
     } else {
       BLE.advertise();
     }

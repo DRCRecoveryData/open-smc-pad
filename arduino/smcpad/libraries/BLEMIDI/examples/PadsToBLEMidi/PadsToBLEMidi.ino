@@ -1,6 +1,6 @@
 // The pads as a Bluetooth MIDI drum controller: notes 36..51 on channel 10 with velocity, the
 // pad lit while held; notes coming back light the pads too. The knobs send CC 70..77.
-// On a Mac: Audio MIDI Setup > Window > Show MIDI Studio > Bluetooth > Connect "SMC-PAD".
+// On a Mac: Audio MIDI Setup > Window > Show MIDI Studio > Bluetooth > Connect "SMC-PAD Pocket".
 #include <SMCPad.h>
 #include <BLEMIDI.h>
 
@@ -25,7 +25,7 @@ void knobTurned(int knob, int delta) {
 }
 
 void setup() {
-  BLEMIDI.begin("SMC-PAD");
+  BLEMIDI.begin("SMC-PAD Pocket");
   SMCPad.onPadPress(padPressed);
   SMCPad.onPadRelease(padReleased);
   SMCPad.onKnob(knobTurned);

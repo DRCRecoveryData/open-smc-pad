@@ -1,7 +1,19 @@
 /* USB descriptors for the TinyUSB build: CDC ACM (console / Arduino Serial) + USB-MIDI.
  * Keep them stable: macOS treats a device whose descriptors change as a new accessory to approve
- * (docs/bootloader.md). */
+ * (docs/bootloader.md). The product string names the model this build runs on, the M-Vave
+ * SMC-PAD Pocket (SK16); the full-size SMC-PAD is the reference board (SMCPAD_POCKET=0). */
 #include "tusb.h"
+#include "smcpad_usb_cfg.h"
+
+#if SMCPAD_POCKET
+#define USB_PRODUCT     "M-Vave SMC-PAD Pocket open fw"
+#define USB_CONSOLE     "SMC-PAD Pocket console"
+#define USB_MIDI        "SMC-PAD Pocket MIDI"
+#else
+#define USB_PRODUCT     "SMC-PAD open fw"
+#define USB_CONSOLE     "SMC-PAD console"
+#define USB_MIDI        "SMC-PAD MIDI"
+#endif
 
 #if SMCPAD_TINYUSB
 
@@ -57,10 +69,10 @@ const uint8_t *tud_descriptor_configuration_cb(uint8_t index)
 static const char *const strings[] = {
     NULL,
     "open_smc_pad",
-    "SMC-PAD open fw",
+    USB_PRODUCT,
     "0001",
-    "SMC-PAD console",
-    "SMC-PAD MIDI",
+    USB_CONSOLE,
+    USB_MIDI,
 };
 
 const uint16_t *tud_descriptor_string_cb(uint8_t index, uint16_t langid)

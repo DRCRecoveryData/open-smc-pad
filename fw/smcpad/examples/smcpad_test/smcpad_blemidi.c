@@ -23,6 +23,7 @@
 #include "le_gatt_common.h"
 #include "app_comm_bt.h"
 #include "smcpad_rt.h"
+#include "smcpad_usb_cfg.h"
 
 #if TCFG_USER_BLE_ENABLE
 
@@ -30,7 +31,11 @@ extern void smcpad_dbg_puts(const char *s);
 extern void smcpad_dbg_kv(const char *tag, u32 value);
 extern void smcpad_dbg_hex16(const char *tag, u32 value);
 
+#if SMCPAD_POCKET
+#define BLEMIDI_NAME            "SMC-PAD Pocket"     /* the M-Vave SMC-PAD Pocket (SK16) */
+#else
 #define BLEMIDI_NAME            "SMC-PAD"
+#endif
 
 /* ATT database, BTstack's compiled format: entry = size(2) flags(2) handle(2) type(2 or 16)
  * value. Flags: READ 0x02, WRITE_WITHOUT_RESPONSE 0x04, WRITE 0x08, NOTIFY 0x10,

@@ -44,8 +44,8 @@ struct BLEServiceImpl {
 BLELocalDevice BLE;
 
 static BLEServiceImpl *services;
-static char device_name[32] = "SMC-PAD";
-static char local_name[30] = "SMC-PAD";
+static char device_name[32] = "SMC-PAD Pocket";
+static char local_name[30] = "SMC-PAD Pocket";
 static uint16_t appearance;
 static BLEUuidValue adv_uuid;
 static uint8_t manufacturer[27], manufacturer_len;
