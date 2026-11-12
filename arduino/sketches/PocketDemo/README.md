@@ -10,7 +10,8 @@ listens.
   triad, hardest the seventh (CC 22 caps it; latched pads play the cap);
 - latch turns a tap into a toggle; note repeat retriggers held and latched pads from the
   clock with rate, swing and tempo; the arpeggiator walks the merged notes of every
-  held/latched pad up, down, up-down or random, one note per step;
+  held/latched pad up, down, up-down or random, one note per step, and can span 1 to 4
+  octaves;
 - holding a pad sends polyphonic aftertouch (`0xA0`) for every note of its chord, following
   the pressure (not while repeating or arpeggiating);
 - the pad's LED is its colour around the wheel: root pads sit brighter towards white,
@@ -32,6 +33,7 @@ On any channel, from USB or BLE. Everything is kept in flash.
 | 26 | tempo: 0..127 = 30..300 BPM |
 | 27 | arp: 0 whole chord, 1 up, 2 down, 3 up-down, 4 random |
 | 28 | clock: 0 internal (CC 26 tempo), 1 external 24-PPQN MIDI clock with start/stop, falling back to internal when it stops |
+| 29 | arp octaves: 1..4 (the arp walk repeats the merged notes an octave up) |
 
 ## On the pad
 

@@ -13,7 +13,8 @@
 //     the swing (0..4 = 50..66%) and CC 26 the tempo (0..127 = 30..300 BPM)
 //   - arpeggiator (CC 27: 0 whole chord, 1 up, 2 down, 3 up-down, 4 random): the notes of
 //     all held/latched pads merge into one sorted sequence and walk it, one note per repeat
-//     step; each step flashes the pad(s) the note came from
+//     step; CC 29 spans the walk over 1..4 octaves (the merged notes repeat an octave up);
+//     each step flashes the pad(s) the note came from
 //   - clock: CC 28 = 0 runs the repeat/arp from the internal clock (CC 26 tempo), 1 follows
 //     an external 24-PPQN MIDI clock (start/continue/stop honoured) and falls back to the
 //     internal clock when the host's clock stops
@@ -53,10 +54,12 @@ static const uint8_t NUM_SCALES = sizeof(SCALES) / sizeof(SCALES[0]);
 static const uint8_t ROOT_CC = 20, SCALE_CC = 21, CHORD_CC = 22;
 static const uint8_t LATCH_CC = 23, RATE_CC = 24, SWING_CC = 25, TEMPO_CC = 26, ARP_CC = 27;
 static const uint8_t SYNC_CC = 28;
+static const uint8_t ARP_OCT_CC = 29;
 static const uint8_t NUM_CHORDS = 3;                 // 0 single note, 1 triad, 2 seventh
 static const uint8_t NUM_ARPS = 5;                   // 0 whole chord, 1 up, 2 down, 3 up-down, 4 random
 static const int EEPROM_ADDR = 64;                   // clear of SMCPadStock's settings at 0
-static const uint32_t SETTINGS_MAGIC = 0x50444B06;   // "PDK" v6 (v5 had no clock sync)
+static const uint32_t SETTINGS_MAGIC = 0x50444B07;   // "PDK" v7 (v6 had no arp octave range)
+static const uint32_t SETTINGS_MAGIC_V6 = 0x50444B06;
 static const uint32_t SETTINGS_MAGIC_V5 = 0x50444B05;
 static const uint32_t SETTINGS_MAGIC_V4 = 0x50444B04;
 static const uint32_t SETTINGS_MAGIC_V3 = 0x50444B03;
@@ -75,6 +78,7 @@ struct Settings {
   uint16_t bpm;                                      // 30..300
   uint8_t arp;                                       // 0 whole chord, 1..4 patterns
   uint8_t sync;                                      // 0 internal clock, 1 external MIDI clock
+  uint8_t arpOct;                                    // 1..4 octaves the arp walk spans
 };
 
 static Settings settings;
@@ -107,8 +111,8 @@ static uint32_t stepUs;
 static uint32_t externalIntervalUs = 20833;          // measured, starts at 120 BPM
 static uint32_t lastExternalUs;
 
-// arpeggiator: the merged notes of every held/latched pad
-static const uint8_t ARP_CAP = 32;
+// arpeggiator: the merged notes of every held/latched pad, over the octave range
+static const uint8_t ARP_CAP = 128;                  // at most 22 merged notes x 4 octaves
 static uint8_t arpNotes[ARP_CAP];                    // ascending, deduplicated
 static uint16_t arpOwners[ARP_CAP];                  // bit per owner pad
 static uint8_t arpCount;
@@ -122,7 +126,7 @@ static uint32_t arpKey;                              // signature of the merged 
 static uint32_t arpVoices;                           // 2 bits per pad: the voices behind it
 
 static void settingsDefaults() {
-  settings = Settings{SETTINGS_MAGIC, 0, DEFAULT_SCALE, DEFAULT_CHORD, 0, 0, 0, DEFAULT_BPM, 0, 0};
+  settings = Settings{SETTINGS_MAGIC, 0, DEFAULT_SCALE, DEFAULT_CHORD, 0, 0, 0, DEFAULT_BPM, 0, 0, 1};
 }
 
 static void settingsChanged() {
@@ -132,12 +136,15 @@ static void settingsChanged() {
 static void settingsLoad() {
   EEPROM.get(EEPROM_ADDR, settings);
   uint32_t magic = settings.magic;
-  if (magic == SETTINGS_MAGIC_V5 || magic == SETTINGS_MAGIC_V4 || magic == SETTINGS_MAGIC_V3) {
+  if (magic == SETTINGS_MAGIC_V6 || magic == SETTINGS_MAGIC_V5 || magic == SETTINGS_MAGIC_V4
+      || magic == SETTINGS_MAGIC_V3) {
+    bool v6 = magic == SETTINGS_MAGIC_V6;
     bool v5 = magic == SETTINGS_MAGIC_V5;
     bool v3 = magic == SETTINGS_MAGIC_V3;
     settings.magic = SETTINGS_MAGIC;
-    settings.sync = 0;
-    if (!v5) settings.arp = 0;
+    settings.arpOct = 1;
+    if (!v6) settings.sync = 0;
+    if (!v6 && !v5) settings.arp = 0;
     if (v3) {                                        // v3 had no latch/repeat settings
       settings.latch = 0;
       settings.rate = 0;
@@ -152,13 +159,14 @@ static void settingsLoad() {
     if (settings.swing > 4) settings.swing = 0;
     if (settings.bpm < 30 || settings.bpm > 300) settings.bpm = DEFAULT_BPM;
     if (settings.arp >= NUM_ARPS) settings.arp = 0;
-    settingsChanged();                               // rewritten as v6 once idle
+    if (settings.arpOct < 1 || settings.arpOct > 4) settings.arpOct = 1;
+    settingsChanged();                               // rewritten as v7 once idle
   } else if (settings.magic != SETTINGS_MAGIC) {
     settingsDefaults();
   } else if (settings.root >= 12 || settings.scale >= NUM_SCALES || settings.chord >= NUM_CHORDS
              || settings.latch > 1 || settings.rate > 8 || settings.swing > 4
              || settings.bpm < 30 || settings.bpm > 300 || settings.arp >= NUM_ARPS
-             || settings.sync > 1) {
+             || settings.sync > 1 || settings.arpOct < 1 || settings.arpOct > 4) {
     settingsDefaults();
   }
 }
@@ -272,7 +280,8 @@ static void arpSilence() {
   }
 }
 
-// the notes of every held/latched pad, merged, deduplicated and sorted
+// the notes of every held/latched pad, merged, deduplicated and sorted,
+// repeated up through the octave range
 static bool arpRefresh() {
   uint16_t owners = 0;
   uint32_t voices = 0;
@@ -280,28 +289,33 @@ static bool arpRefresh() {
   for (int i = 0; i < 16; i++) {
     if (!(pad[i].held || pad[i].latched)) continue;
     owners |= 1 << i;
-    uint8_t voice = effectiveVoice(i);
-    voices |= (uint32_t)voice << (2 * i);
-    uint8_t notes[4];
-    int n = chordNotes(i, notes, voice);
-    for (int k = 0; k < n; k++) {
-      int slot = 0;
-      while (slot < arpCount && arpNotes[slot] < notes[k]) slot++;
-      if (slot < arpCount && arpNotes[slot] == notes[k]) {
-        arpOwners[slot] |= 1 << i;
-      } else if (arpCount < ARP_CAP) {
-        for (int m = arpCount; m > slot; m--) {
-          arpNotes[m] = arpNotes[m - 1];
-          arpOwners[m] = arpOwners[m - 1];
+    voices |= (uint32_t)effectiveVoice(i) << (2 * i);
+  }
+  for (int o = 0; o < settings.arpOct; o++) {
+    for (int i = 0; i < 16; i++) {
+      if (!(owners & (1 << i))) continue;
+      uint8_t notes[4];
+      int n = chordNotes(i, notes, effectiveVoice(i));
+      for (int k = 0; k < n; k++) {
+        uint8_t note = notes[k] + 12 * o;
+        int slot = 0;
+        while (slot < arpCount && arpNotes[slot] < note) slot++;
+        if (slot < arpCount && arpNotes[slot] == note) {
+          arpOwners[slot] |= 1 << i;                 // reachable from two octaves
+        } else if (arpCount < ARP_CAP) {
+          for (int m = arpCount; m > slot; m--) {
+            arpNotes[m] = arpNotes[m - 1];
+            arpOwners[m] = arpOwners[m - 1];
+          }
+          arpNotes[slot] = note;
+          arpOwners[slot] = 1 << i;
+          arpCount++;
         }
-        arpNotes[slot] = notes[k];
-        arpOwners[slot] = 1 << i;
-        arpCount++;
       }
     }
   }
   uint32_t key = owners | (uint32_t)settings.root << 16 | (uint32_t)settings.scale << 20
-                 | (uint32_t)settings.chord << 24;
+                 | (uint32_t)settings.chord << 24 | (uint32_t)settings.arpOct << 26;
   bool changed = key != arpKey || voices != arpVoices;
   arpKey = key;
   arpVoices = voices;
@@ -414,6 +428,13 @@ static void setArp(uint8_t arp) {
   settingsChanged();
 }
 
+static void setArpOct(uint8_t oct) {
+  oct = constrain(oct, 1, 4);
+  if (oct == settings.arpOct) return;
+  settings.arpOct = oct;
+  settingsChanged();
+}
+
 static void setLatch(uint8_t latch) {
   if (latch == settings.latch) return;
   settings.latch = latch;
@@ -497,6 +518,7 @@ static void midiIn() {                               // the next CC 20..26 from 
       else if (p.byte2 == TEMPO_CC) setBpm((uint16_t)(30 + p.byte3 * 270 / 127));
       else if (p.byte2 == ARP_CC) setArp(p.byte3 > NUM_ARPS - 1 ? NUM_ARPS - 1 : p.byte3);
       else if (p.byte2 == SYNC_CC) setSync(p.byte3 ? 1 : 0);
+      else if (p.byte2 == ARP_OCT_CC) setArpOct(p.byte3);
     }
   }
 }
