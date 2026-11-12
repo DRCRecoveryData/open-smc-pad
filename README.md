@@ -5,6 +5,9 @@ a bootloader, an Arduino core and a step sequencer for a 16-pad MIDI controller<
 
 <p align="center"><img src="docs/img/pocket-play.gif" width="480" alt="The SMC-PAD Pocket playing the demo sketch in the emulator: 16 RGB pads light up as they are hit, brighter with pressure"></p>
 
+<p align="center"><i>The animation is <a href="arduino/sketches/PocketDemo">PocketDemo</a>,
+a sketch in this repository, running in the <a href="arduino/sim">emulator</a>.</i></p>
+
 <p align="center">
 <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT"></a>
 <img src="https://img.shields.io/badge/chip-JieLi%20AC6966C%20(BR25)-555" alt="JieLi AC6966C">
