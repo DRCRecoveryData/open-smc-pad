@@ -652,7 +652,7 @@ static void cmd_help(void)
         "\r\npocket build: pads and chain LEDs only (no 595s, no key matrix)\r\n"
         "  m                 show the pad pins\r\n"
         "  A                 live pad values, by logical pad 0..15\r\n"
-        "  W                 pad wizard: press pads 1..16 (top-left first), maps pad -> LED\r\n"
+        "  W                 pad wizard: press pads 1..16 (bottom-left first), maps pad -> LED\r\n"
         "  n [<i> <rrggbb>]  chain LED i (n a <rrggbb> = all, n = off)\r\n"
         "  N                 walk the chain one LED at a time\r\n"
 #endif
@@ -704,7 +704,7 @@ static void cmd_help(void)
 static void cmd_map(void)
 {
 #if SMCPAD_POCKET
-    smcpad_dbg_puts("pocket pins: 4051 COM PA6, selects PA5/PC1/PC3 (assumed S0/S1/S2);\r\n"
+    smcpad_dbg_puts("pocket pins: 4051 COM PA6, selects S0/S1/S2 = PC3/PC1/PA5 (measured);\r\n"
                     "  direct pads PA0 PA1 PA3 PA4 PB7 PC2 PC4 PC5; chain LED PB1 (SPI1)\r\n");
     return;
 #else
