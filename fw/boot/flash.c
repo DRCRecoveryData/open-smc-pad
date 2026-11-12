@@ -125,14 +125,28 @@ static int write_enable(void)
     return err;
 }
 
+/* Continuous-read mode (SFC_CON 8..11 = 6 or 7) leaves the flash mid-burst, so the first
+ * command is garbage.  The SDK's exit_continue_mode() sends 0xFF bytes with CS low: two for
+ * mode 6, four for mode 7.  (Its enter_continue_mode() has no counterpart here: the DFU mode
+ * never runs from flash again.) */
+static int exit_continue_mode(u32 mode)
+{
+    int err;
+
+    cs_level(0);
+    err = spi_xfer(0xFF, 0) || spi_xfer(0xFF, 0);
+    if (!err && mode == 7) {
+        err = spi_xfer(0xFF, 0) || spi_xfer(0xFF, 0);
+    }
+    cs_level(1);
+    return err;
+}
+
 /* Park the SFC for good: wait for it to be idle, CS as a GPIO held high, SFC off, SPI0 on. */
 int flash_begin(void)
 {
     u32 port = (FLASH_PORT_SEL >> 5) & 1, mode = (SFC_CON >> 8) & 0xF;
 
-    if (mode == 6 || mode == 7) {
-        return -5;                          /* continuous-read mode: not handled */
-    }
     cs_base = port ? PORTC_BASE : PORTD_BASE;
     cs_bit = port ? (1u << 1) : (1u << 3);  /* PC1 or PD3, as the SDK's spi_cs */
     for (u32 n = 0; !(SFC_IDLE_STAT & 0x20); n++) {
@@ -152,6 +166,9 @@ int flash_begin(void)
     PORT_DIR(cs_base) &= ~cs_bit;
     PORT_PU(cs_base) &= ~cs_bit;
     SPI0_CON |= 1u;
+    if (mode == 6 || mode == 7) {
+        return exit_continue_mode(mode);
+    }
     return 0;
 }
 

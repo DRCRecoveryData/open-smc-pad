@@ -19,7 +19,7 @@ docker run --rm --platform linux/amd64 \
         cc() {
             $T/clang -target pi32v2 -mcpu=r3 -integrated-as -Oz -fno-common -ffreestanding \
                 -ffunction-sections -fdata-sections -Wall -Wno-unused-function \
-                -mllvm -enable-ipra=false \
+                -mllvm -enable-ipra=false -DSMCPAD_BOOT \
                 -I. -Iinclude -I/tinyusb/src -c "$1" -o "out/$(basename "$1" .c).o"
         }
         # link <name> <script> <sources...>: out/<name>.elf, .bin (.start then .ram), .dis, .map

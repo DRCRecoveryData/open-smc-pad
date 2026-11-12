@@ -26,7 +26,11 @@
 
 #include <string.h>
 #include "device/dcd.h"
+#ifdef SMCPAD_BOOT
+#define SMCPAD_SPIN(n)          (n)     /* the bootloader runs at the fixed 24 MHz clock */
+#else
 #include "smcpad_spin.h"
+#endif
 
 /* ------------------------------------------------------------------ registers */
 

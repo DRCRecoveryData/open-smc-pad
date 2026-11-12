@@ -21,13 +21,13 @@
 #include "app_config.h"
 #include "smcpad_usb_cfg.h"
 #include "asm/hwi.h"
+#include "smcpad_spin.h"
 #if SMCPAD_TINYUSB
 #include "tusb.h"
 #else
 #include "usb/device/usb_stack.h"
 #include "usb_config.h"
 #include "cdc.h"
-#include "smcpad_spin.h"
 
 /* The debug channel is the whole point of this file: if the USB device or the CDC class got
  * configured out, the firmware would ship silent and we would burn a flash cycle to find out. */
