@@ -9,11 +9,14 @@
 //     6 mixolydian, 7 blues), on any channel, from USB or BLE; the choices are kept in flash
 //   - latch (CC 23: 0 off, 1 on): a tap toggles a pad on or off instead of momentary
 //   - note repeat (CC 24: 0 off, 1..8 = 1/4, 1/4T, 1/8, 1/8T, 1/16, 1/16T, 1/32, 1/32T):
-//     held and latched pads retrigger from the internal clock, with a 50% gate; CC 25 picks
+//     held and latched pads retrigger from the clock, with a 50% gate; CC 25 picks
 //     the swing (0..4 = 50..66%) and CC 26 the tempo (0..127 = 30..300 BPM)
 //   - arpeggiator (CC 27: 0 whole chord, 1 up, 2 down, 3 up-down, 4 random): the notes of
 //     all held/latched pads merge into one sorted sequence and walk it, one note per repeat
 //     step; each step flashes the pad(s) the note came from
+//   - clock: CC 28 = 0 runs the repeat/arp from the internal clock (CC 26 tempo), 1 follows
+//     an external 24-PPQN MIDI clock (start/continue/stop honoured) and falls back to the
+//     internal clock when the host's clock stops
 //   - each pad sends Note On/Off on channel 1, velocity from how hard it is hit
 //   - holding a pad sends polyphonic aftertouch (0xA0) for every note of its chord,
 //     following the pressure (repeating pads are articulated by their retriggers instead)
@@ -49,10 +52,12 @@ static const uint8_t NUM_SCALES = sizeof(SCALES) / sizeof(SCALES[0]);
 
 static const uint8_t ROOT_CC = 20, SCALE_CC = 21, CHORD_CC = 22;
 static const uint8_t LATCH_CC = 23, RATE_CC = 24, SWING_CC = 25, TEMPO_CC = 26, ARP_CC = 27;
+static const uint8_t SYNC_CC = 28;
 static const uint8_t NUM_CHORDS = 3;                 // 0 single note, 1 triad, 2 seventh
 static const uint8_t NUM_ARPS = 5;                   // 0 whole chord, 1 up, 2 down, 3 up-down, 4 random
 static const int EEPROM_ADDR = 64;                   // clear of SMCPadStock's settings at 0
-static const uint32_t SETTINGS_MAGIC = 0x50444B05;   // "PDK" v5 (v4 had no arp pattern)
+static const uint32_t SETTINGS_MAGIC = 0x50444B06;   // "PDK" v6 (v5 had no clock sync)
+static const uint32_t SETTINGS_MAGIC_V5 = 0x50444B05;
 static const uint32_t SETTINGS_MAGIC_V4 = 0x50444B04;
 static const uint32_t SETTINGS_MAGIC_V3 = 0x50444B03;
 static const uint8_t DEFAULT_SCALE = 1;              // major pentatonic
@@ -69,6 +74,7 @@ struct Settings {
   uint8_t swing;                                     // 0..4
   uint16_t bpm;                                      // 30..300
   uint8_t arp;                                       // 0 whole chord, 1..4 patterns
+  uint8_t sync;                                      // 0 internal clock, 1 external MIDI clock
 };
 
 static Settings settings;
@@ -98,6 +104,8 @@ static uint32_t nextClockUs;
 static bool triggerPending;
 static uint32_t triggerAt;
 static uint32_t stepUs;
+static uint32_t externalIntervalUs = 20833;          // measured, starts at 120 BPM
+static uint32_t lastExternalUs;
 
 // arpeggiator: the merged notes of every held/latched pad
 static const uint8_t ARP_CAP = 32;
@@ -114,7 +122,7 @@ static uint32_t arpKey;                              // signature of the merged 
 static uint32_t arpVoices;                           // 2 bits per pad: the voices behind it
 
 static void settingsDefaults() {
-  settings = Settings{SETTINGS_MAGIC, 0, DEFAULT_SCALE, DEFAULT_CHORD, 0, 0, 0, DEFAULT_BPM, 0};
+  settings = Settings{SETTINGS_MAGIC, 0, DEFAULT_SCALE, DEFAULT_CHORD, 0, 0, 0, DEFAULT_BPM, 0, 0};
 }
 
 static void settingsChanged() {
@@ -123,10 +131,13 @@ static void settingsChanged() {
 
 static void settingsLoad() {
   EEPROM.get(EEPROM_ADDR, settings);
-  if (settings.magic == SETTINGS_MAGIC_V4 || settings.magic == SETTINGS_MAGIC_V3) {
-    bool v3 = settings.magic == SETTINGS_MAGIC_V3;
+  uint32_t magic = settings.magic;
+  if (magic == SETTINGS_MAGIC_V5 || magic == SETTINGS_MAGIC_V4 || magic == SETTINGS_MAGIC_V3) {
+    bool v5 = magic == SETTINGS_MAGIC_V5;
+    bool v3 = magic == SETTINGS_MAGIC_V3;
     settings.magic = SETTINGS_MAGIC;
-    settings.arp = 0;
+    settings.sync = 0;
+    if (!v5) settings.arp = 0;
     if (v3) {                                        // v3 had no latch/repeat settings
       settings.latch = 0;
       settings.rate = 0;
@@ -140,12 +151,14 @@ static void settingsLoad() {
     if (settings.rate > 8) settings.rate = 0;
     if (settings.swing > 4) settings.swing = 0;
     if (settings.bpm < 30 || settings.bpm > 300) settings.bpm = DEFAULT_BPM;
-    settingsChanged();                               // rewritten as v5 once idle
+    if (settings.arp >= NUM_ARPS) settings.arp = 0;
+    settingsChanged();                               // rewritten as v6 once idle
   } else if (settings.magic != SETTINGS_MAGIC) {
     settingsDefaults();
   } else if (settings.root >= 12 || settings.scale >= NUM_SCALES || settings.chord >= NUM_CHORDS
              || settings.latch > 1 || settings.rate > 8 || settings.swing > 4
-             || settings.bpm < 30 || settings.bpm > 300 || settings.arp >= NUM_ARPS) {
+             || settings.bpm < 30 || settings.bpm > 300 || settings.arp >= NUM_ARPS
+             || settings.sync > 1) {
     settingsDefaults();
   }
 }
@@ -446,12 +459,35 @@ static void setRate(uint8_t rate) {
   settingsChanged();
 }
 
+static void clockTick();
+
+static void setSync(uint8_t sync) {
+  if (sync == settings.sync) return;
+  settings.sync = sync;
+  clockCount = 0;
+  triggerPending = false;
+  settingsChanged();
+}
+
 static void midiIn() {                               // the next CC 20..26 from USB, else BLE
   for (int n = 0; n < 32; n++) {
     midiEventPacket_t p = MidiUSB.read();
     if (!p.header && bleStarted) p = BLEMIDI.read();
     if (!p.header) return;
-    if ((p.byte1 & 0xF0) == 0xB0) {
+    if (p.byte1 == 0xF8) {
+      if (settings.sync) {                           // the host's 24-PPQN clock
+        uint32_t now = micros();
+        uint32_t dt = now - lastExternalUs;
+        if (dt < 200000) externalIntervalUs = (externalIntervalUs * 3 + dt) / 4;
+        lastExternalUs = now;
+        clockTick();
+      }
+    } else if (p.byte1 == 0xFA) {                    // start: the grid restarts here
+      clockCount = 0;
+      triggerPending = false;
+    } else if (p.byte1 == 0xFC) {                    // stop: the internal clock takes over
+      lastExternalUs = micros() - 500000;
+    } else if ((p.byte1 & 0xF0) == 0xB0) {
       if (p.byte2 == ROOT_CC) setRoot(p.byte3 % 12);
       else if (p.byte2 == SCALE_CC) setScale(p.byte3 % NUM_SCALES);
       else if (p.byte2 == CHORD_CC) setChord(p.byte3 % NUM_CHORDS);
@@ -460,12 +496,17 @@ static void midiIn() {                               // the next CC 20..26 from 
       else if (p.byte2 == SWING_CC) setSwing(p.byte3);
       else if (p.byte2 == TEMPO_CC) setBpm((uint16_t)(30 + p.byte3 * 270 / 127));
       else if (p.byte2 == ARP_CC) setArp(p.byte3 > NUM_ARPS - 1 ? NUM_ARPS - 1 : p.byte3);
+      else if (p.byte2 == SYNC_CC) setSync(p.byte3 ? 1 : 0);
     }
   }
 }
 
+static bool externalAlive() {
+  return settings.sync && micros() - lastExternalUs < 500000;
+}
+
 static uint32_t clockIntervalUs() {
-  return 2500000UL / settings.bpm;                   // 24 clocks per quarter
+  return externalAlive() ? externalIntervalUs : 2500000UL / settings.bpm;
 }
 
 static void repeatFire() {
@@ -493,10 +534,12 @@ static void clockTick() {
 
 static void clockRun() {
   uint32_t now = micros();
-  if ((int32_t)(now - nextClockUs) > 100000) nextClockUs = now;   // fell behind: restart
-  while ((int32_t)(now - nextClockUs) >= 0) {
-    clockTick();
-    nextClockUs += clockIntervalUs();
+  if (!externalAlive()) {                            // the host's clock drives clockTick()
+    if ((int32_t)(now - nextClockUs) > 100000) nextClockUs = now;   // fell behind: restart
+    while ((int32_t)(now - nextClockUs) >= 0) {
+      clockTick();
+      nextClockUs += clockIntervalUs();
+    }
   }
   if (triggerPending && (int32_t)(now - triggerAt) >= 0) {
     triggerPending = false;

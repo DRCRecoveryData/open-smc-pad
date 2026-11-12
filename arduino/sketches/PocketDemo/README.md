@@ -8,8 +8,8 @@ listens.
 - the pads walk the selected scale; each pad plays the chord on its scale degree, velocity
   from how hard it is hit, and the pressure opens the chord: light is the root, more the
   triad, hardest the seventh (CC 22 caps it; latched pads play the cap);
-- latch turns a tap into a toggle; note repeat retriggers held and latched pads from an
-  internal clock with rate, swing and tempo; the arpeggiator walks the merged notes of every
+- latch turns a tap into a toggle; note repeat retriggers held and latched pads from the
+  clock with rate, swing and tempo; the arpeggiator walks the merged notes of every
   held/latched pad up, down, up-down or random, one note per step;
 - holding a pad sends polyphonic aftertouch (`0xA0`) for every note of its chord, following
   the pressure (not while repeating or arpeggiating);
@@ -31,6 +31,7 @@ On any channel, from USB or BLE. Everything is kept in flash.
 | 25 | swing: 0..4 |
 | 26 | tempo: 0..127 = 30..300 BPM |
 | 27 | arp: 0 whole chord, 1 up, 2 down, 3 up-down, 4 random |
+| 28 | clock: 0 internal (CC 26 tempo), 1 external 24-PPQN MIDI clock with start/stop, falling back to internal when it stops |
 
 ## On the pad
 
