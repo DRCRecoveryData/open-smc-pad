@@ -9,8 +9,8 @@
 //     6 mixolydian, 7 blues), on any channel, from USB or BLE; the choices are kept in flash
 //   - latch (CC 23: 0 off, 1 on): a tap toggles a pad on or off instead of momentary
 //   - note repeat (CC 24: 0 off, 1..8 = 1/4, 1/4T, 1/8, 1/8T, 1/16, 1/16T, 1/32, 1/32T):
-//     held and latched pads retrigger from the clock, with a 50% gate; CC 25 picks
-//     the swing (0..4 = 50..66%) and CC 26 the tempo (0..127 = 30..300 BPM)
+//     held and latched pads retrigger from the clock, with the CC 36 gate (default half a
+//     step); CC 25 picks the swing (0..4 = 50..66%) and CC 26 the tempo (0..127 = 30..300 BPM)
 //   - arpeggiator (CC 27: 0 whole chord, 1 up, 2 down, 3 up-down, 4 random): the notes of
 //     all held/latched pads merge into one sorted sequence and walk it, one note per repeat
 //     step; CC 29 spans the walk over 1..4 octaves (the merged notes repeat an octave up);
@@ -25,7 +25,7 @@
 //     in RAM (lost on power cycle) until CC 34 stores it in flash, CC 35 loads it back
 //   - presets: program change 0..7 recalls a slot, CC 33 = 0..7 stores the current state into
 //     one; a slot keeps root, scale, chord cap, latch, repeat rate, swing, tempo, arp, clock
-//     source and octave range, so a host can switch songs while the pad plays
+//     source, octave range and gate, so a host can switch songs while the pad plays
 //   - each pad sends Note On/Off on channel 1, velocity from how hard it is hit
 //   - holding a pad sends polyphonic aftertouch (0xA0) for every note of its chord,
 //     following the pressure (repeating pads are articulated by their retriggers instead)
@@ -67,6 +67,7 @@ static const uint8_t LOOP_CC = 30, LOOP_BARS_CC = 31, LOOP_TRANSPOSE_CC = 32;
 static const uint8_t PRESET_SAVE_CC = 33;            // 0..7 stores the playing state in a slot
 static const uint8_t LOOP_STORE_CC = 34;             // stores the take in flash
 static const uint8_t LOOP_LOAD_CC = 35;              // loads the stored take back
+static const uint8_t GATE_CC = 36;                   // 5..95 % of a step, 50 = half
 static const uint8_t NUM_CHORDS = 3;                 // 0 single note, 1 triad, 2 seventh
 static const uint8_t NUM_ARPS = 5;                   // 0 whole chord, 1 up, 2 down, 3 up-down, 4 random
 static const uint16_t CLOCKS_PER_BAR = 96;           // 24 PPQN x 4 beats
@@ -78,14 +79,16 @@ static const int EEPROM_LOOP_ADDR = 1024;            // 512 packed events, 4 byt
 static const int EEPROM_LOOP_HEADER_ADDR = 3072;     // the take's header, in its own chunk
 static const uint32_t LOOP_MAGIC = 0x50444C50;       // marks a stored take ("PD" + loop)
 static const uint8_t NUM_PRESETS = 8;                // recalled with program change 0..7
-static const uint8_t PRESET_SET = 0xA5;              // marks a slot that was stored
-static const uint32_t SETTINGS_MAGIC = 0x50444B07;   // "PDK" v7 (v6 had no arp octave range)
+static const uint8_t PRESET_SET = 0xA6;              // marks a slot stored with the gate field
+static const uint32_t SETTINGS_MAGIC = 0x50444B08;   // "PDK" v8 (v7 had no arp gate)
+static const uint32_t SETTINGS_MAGIC_V7 = 0x50444B07;
 static const uint32_t SETTINGS_MAGIC_V6 = 0x50444B06;
 static const uint32_t SETTINGS_MAGIC_V5 = 0x50444B05;
 static const uint32_t SETTINGS_MAGIC_V4 = 0x50444B04;
 static const uint32_t SETTINGS_MAGIC_V3 = 0x50444B03;
 static const uint8_t DEFAULT_SCALE = 1;              // major pentatonic
 static const uint8_t DEFAULT_CHORD = 2;              // the seventh is the cap
+static const uint8_t DEFAULT_GATE = 50;              // half a step
 static const uint16_t DEFAULT_BPM = 120;
 
 struct Settings {
@@ -100,6 +103,7 @@ struct Settings {
   uint8_t arp;                                       // 0 whole chord, 1..4 patterns
   uint8_t sync;                                      // 0 internal clock, 1 external MIDI clock
   uint8_t arpOct;                                    // 1..4 octaves the arp walk spans
+  uint8_t gate;                                      // 5..95 % of a repeat/arp step
 };
 
 static Settings settings;
@@ -108,7 +112,7 @@ static bool bleStarted;
 
 struct Preset {                                      // the playing state a slot keeps
   uint8_t root, scale, chord, latch, rate, swing;
-  uint8_t arp, sync, arpOct;
+  uint8_t arp, sync, arpOct, gate;
   uint8_t set;                                       // PRESET_SET once stored
   uint16_t bpm;
 };
@@ -184,7 +188,8 @@ static bool loopFiring;                              // midi() is replaying the 
 static int8_t loopTranspose;                         // semitones added to the playback
 
 static void settingsDefaults() {
-  settings = Settings{SETTINGS_MAGIC, 0, DEFAULT_SCALE, DEFAULT_CHORD, 0, 0, 0, DEFAULT_BPM, 0, 0, 1};
+  settings = Settings{SETTINGS_MAGIC, 0, DEFAULT_SCALE, DEFAULT_CHORD, 0, 0, 0, DEFAULT_BPM,
+                      0, 0, 1, DEFAULT_GATE};
 }
 
 static void settingsChanged() {
@@ -194,13 +199,14 @@ static void settingsChanged() {
 static void settingsLoad() {
   EEPROM.get(EEPROM_ADDR, settings);
   uint32_t magic = settings.magic;
-  if (magic == SETTINGS_MAGIC_V6 || magic == SETTINGS_MAGIC_V5 || magic == SETTINGS_MAGIC_V4
-      || magic == SETTINGS_MAGIC_V3) {
+  if (magic == SETTINGS_MAGIC_V7 || magic == SETTINGS_MAGIC_V6 || magic == SETTINGS_MAGIC_V5
+      || magic == SETTINGS_MAGIC_V4 || magic == SETTINGS_MAGIC_V3) {
     bool v6 = magic == SETTINGS_MAGIC_V6;
     bool v5 = magic == SETTINGS_MAGIC_V5;
     bool v3 = magic == SETTINGS_MAGIC_V3;
     settings.magic = SETTINGS_MAGIC;
     settings.arpOct = 1;
+    settings.gate = DEFAULT_GATE;                    // no version before v8 had a gate
     if (!v6) settings.sync = 0;
     if (!v6 && !v5) settings.arp = 0;
     if (v3) {                                        // v3 had no latch/repeat settings
@@ -218,13 +224,14 @@ static void settingsLoad() {
     if (settings.bpm < 30 || settings.bpm > 300) settings.bpm = DEFAULT_BPM;
     if (settings.arp >= NUM_ARPS) settings.arp = 0;
     if (settings.arpOct < 1 || settings.arpOct > 4) settings.arpOct = 1;
-    settingsChanged();                               // rewritten as v7 once idle
+    settingsChanged();                               // rewritten as v8 once idle
   } else if (settings.magic != SETTINGS_MAGIC) {
     settingsDefaults();
   } else if (settings.root >= 12 || settings.scale >= NUM_SCALES || settings.chord >= NUM_CHORDS
              || settings.latch > 1 || settings.rate > 8 || settings.swing > 4
              || settings.bpm < 30 || settings.bpm > 300 || settings.arp >= NUM_ARPS
-             || settings.sync > 1 || settings.arpOct < 1 || settings.arpOct > 4) {
+             || settings.sync > 1 || settings.arpOct < 1 || settings.arpOct > 4
+             || settings.gate < 5 || settings.gate > 95) {
     settingsDefaults();
   }
 }
@@ -427,7 +434,7 @@ static void arpFire() {
   arpSilence();
   midi(0x90 | CH, note, velocity);
   arpSingle = note;
-  arpGateOffAt = (micros() + stepUs / 2) | 1;
+  arpGateOffAt = (micros() + stepUs * settings.gate / 100) | 1;
   for (int i = 0; i < 16; i++)
     if (owners & (1 << i)) pad[i].flashUntil = millis() + 40;
   arpLast = note;
@@ -462,6 +469,13 @@ static void setSwing(uint8_t swing) {
     settings.swing = swing;
     settingsChanged();
   }
+}
+
+static void setGate(uint8_t gate) {
+  gate = constrain(gate, 5, 95);                     // 5..95 % of a step
+  if (gate == settings.gate) return;
+  settings.gate = gate;
+  settingsChanged();
 }
 
 static void setBpm(uint16_t bpm) {
@@ -763,6 +777,7 @@ static void presetSave(uint8_t slot) {
   p.arp = settings.arp;
   p.sync = settings.sync;
   p.arpOct = settings.arpOct;
+  p.gate = settings.gate;
   p.set = PRESET_SET;
   EEPROM.put(EEPROM_PRESET_ADDR + slot * (int)sizeof(Preset), p);
   EEPROM.commit();                                   // a store is user-asked, write it now
@@ -783,6 +798,7 @@ static void presetRecall(uint8_t slot) {
   setArp(p.arp < NUM_ARPS ? p.arp : 0);
   setSync(p.sync ? 1 : 0);
   setArpOct(p.arpOct);
+  setGate(p.gate < 5 || p.gate > 95 ? DEFAULT_GATE : p.gate);
 }
 
 static void midiIn() {                               // the next CC 20..26 from USB, else BLE
@@ -822,6 +838,7 @@ static void midiIn() {                               // the next CC 20..26 from 
       else if (p.byte2 == PRESET_SAVE_CC) presetSave(p.byte3);
       else if (p.byte2 == LOOP_STORE_CC) { if (p.byte3) loopStore(); }
       else if (p.byte2 == LOOP_LOAD_CC) { if (p.byte3) loopLoad(); }
+      else if (p.byte2 == GATE_CC) setGate(p.byte3);
     }
   }
 }
@@ -840,7 +857,7 @@ static void repeatFire() {
     uint8_t velocity = pad[i].held ? constrain(pressureLevel(SMCPad.padPressure(i)), 1, 127)
                                    : pad[i].velocity;
     sound(i, velocity);
-    pad[i].gateOffAt = (micros() + stepUs / 2) | 1;
+    pad[i].gateOffAt = (micros() + stepUs * settings.gate / 100) | 1;
     pad[i].flashUntil = millis() + 40;
   }
 }
