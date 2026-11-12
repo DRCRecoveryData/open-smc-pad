@@ -7,7 +7,8 @@
 What happens (fw/boot/install.c has the other half, docs/bootloader.md the whole story):
 
 1. Over USB-MIDI the stock firmware (SINCO 0x21/0x22/0x23) writes, into free flash:
-   - the installer as an app area at 0x41000, SFC-encrypted;
+   - the installer as an app area at 0x41000 (plaintext if 0x41000 is above the SFC window,
+     which it is on the Pocket; encrypted on the reference board);
    - a staging area at 0x43000: header + the bootloader's app area (plaintext);
    and every byte is read back.
 2. It points sector 0's app_dir_head at 0x41000 (read, patch one entry, write, read back;
@@ -23,7 +24,6 @@ Sector 0 as the stock firmware reads it is the physical sector XOR an ENC keystr
 entries, each ENC-ciphered (key 0xFFFF) on its own, with a CRC16 over their last 30 bytes.
 """
 import argparse
-import struct
 import subprocess
 import sys
 import time
@@ -35,6 +35,7 @@ sys.path.insert(0, str(HERE))
 
 import bootpkg                                       # noqa: E402
 import jlimage as J                                  # noqa: E402
+import mido                                          # noqa: E402
 from sinco_flash import FlashLink                    # noqa: E402
 
 INSTALL_DIR, STAGE, STAGE_END, DEST = bootpkg.INSTALL_DIR, bootpkg.STAGE, bootpkg.STAGE_END, bootpkg.DEST
@@ -53,49 +54,24 @@ def die(msg):
 
 # ------------------------------------------------------------------ sector 0
 
-def sector0_keystream():
-    k = bytearray(SECTOR)
-    for off in range(0, SECTOR, 256):
-        J.enc_cipher(k, off, 256)
-    return bytes(k)
-
-
-def entries(phys):
-    """(offset, decrypted entry bytes) of sector 0's file list."""
-    out = []
-    for off in range(0x20, 0x200, 32):
-        e = bytearray(phys[off:off + 32])
-        J.enc_cipher(e, 0, 32)
-        if J.crc16(bytes(e[2:])) != struct.unpack_from("<H", e)[0]:
-            break
-        out.append((off, bytes(e)))
-    return out
-
-
 def app_dir_head(phys):
-    for off, e in entries(phys):
-        if e[16:28] == b"app_dir_head":
-            return off, struct.unpack_from("<I", e, 4)[0]
-    die("no app_dir_head in sector 0: not the layout this tool knows")
+    try:
+        return J.sector0_app_dir_head(phys)
+    except ValueError:
+        die("no app_dir_head in sector 0: not the layout this tool knows")
 
 
-def with_boot_dir(phys, target):
-    off, _ = app_dir_head(phys)
-    e = bytearray(phys[off:off + 32])
-    J.enc_cipher(e, 0, 32)
-    struct.pack_into("<I", e, 4, target)
-    struct.pack_into("<H", e, 0, J.crc16(bytes(e[2:])))
-    J.enc_cipher(e, 0, 32)
-    out = bytearray(phys)
-    out[off:off + 32] = e
-    return bytes(out)
 
 
 # ------------------------------------------------------------------ the link
 
 class Pad:
     def __init__(self, dry_run):
-        self.link = FlashLink()
+        names = [n for n in mido.get_input_names()
+                 if "SINCO" in n and "Private" in n]
+        if len(names) != 1:
+            die(f"expected one SINCO private port, found {names}")
+        self.link = FlashLink(names[0])
         self.dry = dry_run
         self.link.drain()
         self.link.send(0x11)
@@ -126,15 +102,14 @@ class Pad:
                 die(f"write {addr + o:#x} failed ({info})")
 
 
-def build_installer_area(pad):
-    """The installer as an app area for INSTALL_DIR, directory modelled on the pad's own."""
+def pad_dir(pad):
+    """The pad's own app directory: entries are relative to DEST, so the VM entry's flash
+    start is DEST + offset (0x26000 on the Pocket, where the SFC window begins)."""
     template = J.read_dir(pad.read(DEST, 0x120))
-    cfg_e = template[2]
-    return bootpkg.installer_area(template, pad.read(DEST + cfg_e.offset, cfg_e.size))
-
-
-def build_stage():
-    return bootpkg.stage(bootpkg.ERASE_STOCK)
+    vm_e = next((e for e in template if e.name.rstrip(b"\x00\xff") == b"VM"), None)
+    if vm_e is None:
+        die("no VM entry in the app directory: not the layout this tool knows")
+    return template, (vm_e.offset, vm_e.size), DEST + vm_e.offset
 
 
 def in_dfu():
@@ -154,24 +129,29 @@ def main():
     if not pad.name.startswith("SMC-PAD"):
         die("not an SMC-PAD")
 
-    K = sector0_keystream()
+    K = J.sector0_keystream()
     phys = bytes(x ^ y for x, y in zip(pad.read(0, SECTOR), K))
     off, boot_dir = app_dir_head(phys)
-    say(f"   sector 0: {len(entries(phys))} entries, app_dir_head at +{off:#x} -> {boot_dir:#x}")
+    say(f"   sector 0: {len(J.sector0_entries(phys))} entries, app_dir_head at +{off:#x} -> {boot_dir:#x}")
     if boot_dir not in (DEST, INSTALL_DIR):
         die(f"sector 0 boots {boot_dir:#x}, expected {DEST:#x}")
 
-    installer = build_installer_area(pad)
-    stage = build_stage()
+    template, vm, vm_flash = pad_dir(pad)
+    cfg_e = template[2]
+    say(f"   VM entry +{vm[0]:#x} size {vm[1]:#x}: SFC window starts at {vm_flash:#x}")
+
+    installer = bootpkg.installer_area(template, pad.read(DEST + cfg_e.offset, cfg_e.size), vm=vm)
+    stage = bootpkg.stage(vm_flash)
     say(f"   installer {len(installer):#x} bytes at {INSTALL_DIR:#x}, "
-        f"staging {len(stage):#x} bytes at {STAGE:#x}")
+        f"staging {len(stage):#x} bytes at {STAGE:#x}, erase_end {vm_flash:#x}")
 
     used = pad.read(INSTALL_DIR, STAGE_END - INSTALL_DIR)
     if used.count(0xFF) != len(used):
         say("   note: the target area was not blank (an earlier attempt?): it gets erased")
 
     say("== writing the installer and the staging area")
-    raw = J.sfc_encrypt_at(installer, INSTALL_DIR)
+    # the installer runs above the window, so what SINCO writes is what the CPU fetches
+    raw = installer if INSTALL_DIR >= vm_flash else J.sfc_encrypt_at(installer, INSTALL_DIR)
     pad.write(INSTALL_DIR, raw)
     pad.write(STAGE, stage)
     if not a.dry_run:
@@ -180,7 +160,7 @@ def main():
             die("read-back mismatch in free flash (sector 0 untouched, nothing to undo)")
         say("   read back OK")
 
-    new_phys = with_boot_dir(phys, INSTALL_DIR)
+    new_phys = J.sector0_with_app_dir(phys, INSTALL_DIR)
     changed = sum(1 for x, y in zip(phys, new_phys) if x != y)
     say(f"== pointing sector 0 at the installer ({changed} bytes change)")
     if a.dry_run:
