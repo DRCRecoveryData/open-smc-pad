@@ -19,9 +19,11 @@
  *
  * Pocket (SK16-V03, SMCPAD_POCKET=1): no matrix, no encoders, no button LEDs. 8 pads go straight
  * to SAR channels (PA0/PA1/PA3/PA4/PB7/PC2/PC4/PC5), the other 8 through one HCF4051 whose COM
- * is PA6 (channel 4) and whose selects are PA5/PC1/PC3. The select bit order is the stock
- * firmware's, which lives in ROM and could not be read out; if it turns out to be another order
- * the eight muxed pads come out permuted and the pad remap table fixes it without a reflash.
+ * is PA6 (channel 4) and whose selects are PA5/PC1/PC3, in the stock firmware's bit order (that
+ * code lives in ROM and could not be read out; a wrong order would only permute the eight muxed
+ * pads, and the pad remap table fixes it without a reflash). Verified on the pad (2026-11-12):
+ * pressing the 16 pads in physical order, every one reads (rest 0-1, peak 237-936) and the
+ * chain LED lights under the finger, so select order, pad numbering and LED table all agree.
  * The 16 RGB LEDs and the TIMER3 tick (used for velocity timing) are the same.
  */
 #include "system/includes.h"
