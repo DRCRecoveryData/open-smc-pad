@@ -10,13 +10,16 @@
 //   - note repeat (CC 24: 0 off, 1..8 = 1/4, 1/4T, 1/8, 1/8T, 1/16, 1/16T, 1/32, 1/32T):
 //     held and latched pads retrigger from the internal clock, with a 50% gate; CC 25 picks
 //     the swing (0..4 = 50..66%) and CC 26 the tempo (0..127 = 30..300 BPM)
+//   - arpeggiator (CC 27: 0 whole chord, 1 up, 2 down, 3 up-down, 4 random): the notes of
+//     all held/latched pads merge into one sorted sequence and walk it, one note per repeat
+//     step; each step flashes the pad(s) the note came from
 //   - each pad sends Note On/Off on channel 1, velocity from how hard it is hit
 //   - holding a pad sends polyphonic aftertouch (0xA0) for every note of its chord,
 //     following the pressure (repeating pads are articulated by their retriggers instead)
 //   - everything goes out over USB-MIDI and, when a host listens, BLE-MIDI (untethered)
 //   - the pad LED is the pad's colour; root pads sit brighter towards white, pressure
-//     brightens a pad towards white, a repeat fire flashes it, and a released pad fades out
-//     like the notes it played
+//     brightens a pad towards white, a repeat or arp step flashes it, and a released pad
+//     fades out like the notes it played
 #include <SMCPad.h>
 #include <MIDIUSB.h>
 #include <BLEMIDI.h>
@@ -44,10 +47,12 @@ static const Scale SCALES[] = {
 static const uint8_t NUM_SCALES = sizeof(SCALES) / sizeof(SCALES[0]);
 
 static const uint8_t ROOT_CC = 20, SCALE_CC = 21, CHORD_CC = 22;
-static const uint8_t LATCH_CC = 23, RATE_CC = 24, SWING_CC = 25, TEMPO_CC = 26;
+static const uint8_t LATCH_CC = 23, RATE_CC = 24, SWING_CC = 25, TEMPO_CC = 26, ARP_CC = 27;
 static const uint8_t NUM_CHORDS = 3;                 // 0 single note, 1 triad, 2 seventh
+static const uint8_t NUM_ARPS = 5;                   // 0 whole chord, 1 up, 2 down, 3 up-down, 4 random
 static const int EEPROM_ADDR = 64;                   // clear of SMCPadStock's settings at 0
-static const uint32_t SETTINGS_MAGIC = 0x50444B04;   // "PDK" v4 (v3 had no repeat settings)
+static const uint32_t SETTINGS_MAGIC = 0x50444B05;   // "PDK" v5 (v4 had no arp pattern)
+static const uint32_t SETTINGS_MAGIC_V4 = 0x50444B04;
 static const uint32_t SETTINGS_MAGIC_V3 = 0x50444B03;
 static const uint8_t DEFAULT_SCALE = 1;              // major pentatonic
 static const uint8_t DEFAULT_CHORD = 1;              // triad
@@ -62,6 +67,7 @@ struct Settings {
   uint8_t rate;                                      // 0 repeat off, 1..8 (RATE_CLOCKS)
   uint8_t swing;                                     // 0..4
   uint16_t bpm;                                      // 30..300
+  uint8_t arp;                                       // 0 whole chord, 1..4 patterns
 };
 
 static Settings settings;
@@ -91,8 +97,21 @@ static bool triggerPending;
 static uint32_t triggerAt;
 static uint32_t stepUs;
 
+// arpeggiator: the merged notes of every held/latched pad
+static const uint8_t ARP_CAP = 32;
+static uint8_t arpNotes[ARP_CAP];                    // ascending, deduplicated
+static uint16_t arpOwners[ARP_CAP];                  // bit per owner pad
+static uint8_t arpCount;
+static uint8_t arpIndex;                             // slot to play next
+static uint8_t arpLast;                              // note played last, to re-anchor
+static int8_t arpDir = 1;                            // up-down direction
+static bool arpStarted;
+static uint8_t arpSingle;                            // sounding arp note, 0 = none
+static uint32_t arpGateOffAt;                        // micros; 0 = none
+static uint32_t arpKey;                              // signature of the merged set
+
 static void settingsDefaults() {
-  settings = Settings{SETTINGS_MAGIC, 0, DEFAULT_SCALE, DEFAULT_CHORD, 0, 0, 0, DEFAULT_BPM};
+  settings = Settings{SETTINGS_MAGIC, 0, DEFAULT_SCALE, DEFAULT_CHORD, 0, 0, 0, DEFAULT_BPM, 0};
 }
 
 static void settingsChanged() {
@@ -101,17 +120,29 @@ static void settingsChanged() {
 
 static void settingsLoad() {
   EEPROM.get(EEPROM_ADDR, settings);
-  if (settings.magic == SETTINGS_MAGIC_V3) {         // v3 block: keep the key and voice
+  if (settings.magic == SETTINGS_MAGIC_V4 || settings.magic == SETTINGS_MAGIC_V3) {
+    bool v3 = settings.magic == SETTINGS_MAGIC_V3;
     settings.magic = SETTINGS_MAGIC;
-    settings.latch = 0;
-    settings.rate = 0;
-    settings.swing = 0;
-    settings.bpm = DEFAULT_BPM;
+    settings.arp = 0;
+    if (v3) {                                        // v3 had no latch/repeat settings
+      settings.latch = 0;
+      settings.rate = 0;
+      settings.swing = 0;
+      settings.bpm = DEFAULT_BPM;
+    }
     if (settings.root >= 12) settings.root = 0;
     if (settings.scale >= NUM_SCALES) settings.scale = DEFAULT_SCALE;
     if (settings.chord >= NUM_CHORDS) settings.chord = DEFAULT_CHORD;
-    settingsChanged();                               // rewritten as v4 once idle
+    if (settings.latch > 1) settings.latch = 0;
+    if (settings.rate > 8) settings.rate = 0;
+    if (settings.swing > 4) settings.swing = 0;
+    if (settings.bpm < 30 || settings.bpm > 300) settings.bpm = DEFAULT_BPM;
+    settingsChanged();                               // rewritten as v5 once idle
   } else if (settings.magic != SETTINGS_MAGIC) {
+    settingsDefaults();
+  } else if (settings.root >= 12 || settings.scale >= NUM_SCALES || settings.chord >= NUM_CHORDS
+             || settings.latch > 1 || settings.rate > 8 || settings.swing > 4
+             || settings.bpm < 30 || settings.bpm > 300 || settings.arp >= NUM_ARPS) {
     settingsDefaults();
   }
 }
@@ -187,6 +218,95 @@ static void sound(int i, uint8_t velocity) {
   pad[i].sounding = true;
 }
 
+static void arpSilence() {
+  if (arpSingle) {
+    midi(0x80 | CH, arpSingle, 0);
+    arpSingle = 0;
+    arpGateOffAt = 0;
+  }
+}
+
+// the notes of every held/latched pad, merged, deduplicated and sorted
+static bool arpRefresh() {
+  uint16_t owners = 0;
+  arpCount = 0;
+  for (int i = 0; i < 16; i++) {
+    if (!(pad[i].held || pad[i].latched)) continue;
+    owners |= 1 << i;
+    uint8_t notes[4];
+    int n = chordNotes(i, notes);
+    for (int k = 0; k < n; k++) {
+      int slot = 0;
+      while (slot < arpCount && arpNotes[slot] < notes[k]) slot++;
+      if (slot < arpCount && arpNotes[slot] == notes[k]) {
+        arpOwners[slot] |= 1 << i;
+      } else if (arpCount < ARP_CAP) {
+        for (int m = arpCount; m > slot; m--) {
+          arpNotes[m] = arpNotes[m - 1];
+          arpOwners[m] = arpOwners[m - 1];
+        }
+        arpNotes[slot] = notes[k];
+        arpOwners[slot] = 1 << i;
+        arpCount++;
+      }
+    }
+  }
+  uint32_t key = owners | (uint32_t)settings.root << 16 | (uint32_t)settings.scale << 20
+                 | (uint32_t)settings.chord << 24;
+  bool changed = key != arpKey;
+  arpKey = key;
+  return changed;
+}
+
+static void arpFire() {
+  bool changed = arpRefresh();
+  if (!arpCount) {
+    arpSilence();
+    arpStarted = false;
+    arpLast = 0;
+    return;
+  }
+  if (settings.arp == 4) {
+    arpIndex = random(arpCount);
+  } else {
+    bool advance = arpStarted;
+    if (!arpStarted) {
+      arpStarted = true;
+      arpDir = 1;
+      arpIndex = settings.arp == 2 ? arpCount - 1 : 0;
+      advance = false;
+    } else if (changed) {                            // re-anchor on the note being played
+      int slot = -1;
+      for (int i = 0; i < arpCount; i++) if (arpNotes[i] == arpLast) { slot = i; break; }
+      advance = slot >= 0;
+      arpIndex = slot >= 0 ? slot : settings.arp == 2 ? arpCount - 1 : 0;
+    }
+    if (advance) {
+      if (settings.arp == 1) arpIndex = (arpIndex + 1) % arpCount;
+      else if (settings.arp == 2) arpIndex = arpIndex ? arpIndex - 1 : arpCount - 1;
+      else if (arpCount > 1) {                       // up-down: turn around without repeating
+        int next = arpIndex + arpDir;
+        if (next >= arpCount) { arpDir = -1; arpIndex = arpCount - 2; }
+        else if (next < 0) { arpDir = 1; arpIndex = 1; }
+        else arpIndex = next;
+      }
+    }
+  }
+  uint8_t note = arpNotes[arpIndex];
+  uint16_t owners = arpOwners[arpIndex];
+  int owner = 0;
+  while (!(owners & (1 << owner))) owner++;
+  uint8_t velocity = pad[owner].held ? constrain(pressureLevel(SMCPad.padPressure(owner)), 1, 127)
+                                     : pad[owner].velocity;
+  arpSilence();
+  midi(0x90 | CH, note, velocity);
+  arpSingle = note;
+  arpGateOffAt = (micros() + stepUs / 2) | 1;
+  for (int i = 0; i < 16; i++)
+    if (owners & (1 << i)) pad[i].flashUntil = millis() + 40;
+  arpLast = note;
+}
+
 static void setRoot(uint8_t root) {
   if (root != settings.root) {
     settings.root = root;
@@ -224,16 +344,41 @@ static void setBpm(uint16_t bpm) {
   }
 }
 
+static void setArp(uint8_t arp) {
+  if (arp == settings.arp) return;
+  settings.arp = arp;
+  triggerPending = false;
+  arpSilence();
+  arpStarted = false;
+  arpLast = 0;
+  arpDir = 1;
+  arpKey = 0;
+  if (settings.rate) {                               // drop any chord a repeat left sounding
+    for (int i = 0; i < 16; i++) {
+      pad[i].gateOffAt = 0;
+      silence(i);
+    }
+  }
+  settingsChanged();
+}
+
 static void setLatch(uint8_t latch) {
   if (latch == settings.latch) return;
   settings.latch = latch;
   if (!latch) {                                      // let go of every latched pad
+    bool any = false;
     for (int i = 0; i < 16; i++) {
       if (pad[i].latched) {
         pad[i].latched = false;
         silence(i);
         pad[i].releasedAt = millis();
       }
+      if (pad[i].held) any = true;
+    }
+    if (!any) {
+      arpSilence();
+      arpStarted = false;
+      arpLast = 0;
     }
   }
   settingsChanged();
@@ -244,6 +389,10 @@ static void setRate(uint8_t rate) {
   settings.rate = rate;
   triggerPending = false;
   if (!rate) {                                       // stop the gates, keep the sound
+    arpSilence();
+    arpStarted = false;
+    arpLast = 0;
+    arpDir = 1;
     for (int i = 0; i < 16; i++) {
       pad[i].gateOffAt = 0;
       if (pad[i].latched) {
@@ -271,6 +420,7 @@ static void midiIn() {                               // the next CC 20..26 from 
       else if (p.byte2 == RATE_CC) setRate(p.byte3 > 8 ? 8 : p.byte3);
       else if (p.byte2 == SWING_CC) setSwing(p.byte3);
       else if (p.byte2 == TEMPO_CC) setBpm((uint16_t)(30 + p.byte3 * 270 / 127));
+      else if (p.byte2 == ARP_CC) setArp(p.byte3 > NUM_ARPS - 1 ? NUM_ARPS - 1 : p.byte3);
     }
   }
 }
@@ -311,8 +461,10 @@ static void clockRun() {
   }
   if (triggerPending && (int32_t)(now - triggerAt) >= 0) {
     triggerPending = false;
-    repeatFire();
+    if (settings.arp) arpFire();
+    else repeatFire();
   }
+  if (arpSingle && (int32_t)(now - arpGateOffAt) >= 0) arpSilence();
   for (int i = 0; i < 16; i++) {
     if (pad[i].gateOffAt && (int32_t)(now - pad[i].gateOffAt) >= 0) {
       pad[i].gateOffAt = 0;
@@ -351,6 +503,7 @@ void setup() {
   settingsLoad();
   SMCPad.onPadPress(onPadPress);
   SMCPad.onPadRelease(onPadRelease);
+  randomSeed(micros());                              // the random arp pattern
   bleStarted = BLEMIDI.begin("SMC-PAD Pocket");
 }
 

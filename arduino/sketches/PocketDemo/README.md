@@ -1,14 +1,35 @@
 # PocketDemo
 
-The Pocket on its own: 16 pads, one note each, played by hand.
+The Pocket on its own: 16 pressure pads playing a selectable key, with chords, latch, note
+repeat and an arpeggiator. It is the sketch behind the README animations. There is no preset,
+bank or Bluetooth logic: it plays straight out of USB-MIDI, and over BLE-MIDI when a host
+listens.
 
-- pad *n* sends Note On/Off for note `48 + n` on channel 1, velocity from how hard it is hit;
-- holding a pad sends polyphonic aftertouch (`0xA0`) that follows the pressure;
-- the pad's LED is its colour around the wheel; pressure brightens it towards white, and a
-  released pad fades out like the note it played.
+- the pads walk the selected scale; each pad plays the chord on its scale degree (single,
+  triad or seventh), velocity from how hard it is hit;
+- latch turns a tap into a toggle; note repeat retriggers held and latched pads from an
+  internal clock with rate, swing and tempo; the arpeggiator walks the merged notes of every
+  held/latched pad up, down, up-down or random, one note per step;
+- holding a pad sends polyphonic aftertouch (`0xA0`) for every note of its chord, following
+  the pressure (not while repeating or arpeggiating);
+- the pad's LED is its colour around the wheel: root pads sit brighter towards white,
+  pressure brightens a pad, a repeat or arp step flashes the pads the note came from, and a
+  released pad fades out.
 
-It is the sketch behind the README animations. There is no preset, bank or Bluetooth logic: it
-plays straight out of USB-MIDI.
+## MIDI CCs
+
+On any channel, from USB or BLE. Everything is kept in flash.
+
+| CC | Meaning |
+|----|---------|
+| 20 | root: 0..11 = C..B |
+| 21 | scale: 0 chromatic, 1 major pentatonic, 2 minor pentatonic, 3 major, 4 natural minor, 5 dorian, 6 mixolydian, 7 blues |
+| 22 | chord voice: 0 single note, 1 triad, 2 seventh |
+| 23 | latch: 0 off, 1 a tap toggles a pad |
+| 24 | note repeat: 0 off, 1..8 = 1/4, 1/4T, 1/8, 1/8T, 1/16, 1/16T, 1/32, 1/32T |
+| 25 | swing: 0..4 |
+| 26 | tempo: 0..127 = 30..300 BPM |
+| 27 | arp: 0 whole chord, 1 up, 2 down, 3 up-down, 4 random |
 
 ## On the pad
 
