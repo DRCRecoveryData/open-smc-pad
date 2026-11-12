@@ -32,3 +32,4 @@ each one says what it needs at the top.
 | `sinco_proto.py`, `sinco_dump.py`, `sinco_flash.py` | the stock firmware's SysEx protocol: read and write its flash over USB-MIDI ([docs/sinco-protocol.md](../docs/sinco-protocol.md)) |
 | `fwsc.py` | M-Vave's `.fwsc` update container |
 | `update.py`, `console.py`, `con_daemon.py`, `dbg_*.sh`, `usb_selftest.py` | the bring-up console firmware's tools |
+| `led_ramp.py` | all 16 pad LEDs through a stepped brightness ramp (needs the console) |
