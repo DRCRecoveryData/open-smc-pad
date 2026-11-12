@@ -22,7 +22,8 @@ KNOB_DEGREES = 15                                   # how far one detent turns t
 
 
 class Scenario:
-    def __init__(self):
+    def __init__(self, board="full"):
+        self.board = board
         self.t = 0
         self.lines = []
         self.captions = []                          # (from ms, text)
@@ -130,7 +131,7 @@ class Scenario:
 
     def make(self, sketch, out, duration=None, fps=25, at=None, scale=1.0):
         frames, midi = self.run(sketch, duration, fps)
-        render.render(frames, self, out, at=at, scale=scale)
+        render.render(frames, self, out, at=at, scale=scale, board=self.board)
         return frames, midi
 
 

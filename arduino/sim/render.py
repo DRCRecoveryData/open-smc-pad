@@ -1,8 +1,9 @@
 """Draws the SMC-PAD from the emulator's frames, with fingers on what the scenario presses.
 
     from render import render
-    render(frames, scenario, "out.gif")             # an animation
-    render(frames, scenario, "out.png", at=1500)    # one still, at 1500 ms
+    render(frames, scenario, "out.gif")                       # an animation, full-size board
+    render(frames, scenario, "out.png", at=1500)              # one still, at 1500 ms
+    render(frames, scenario, "out.gif", board="pocket")       # the Pocket: 16 pads, no knobs/buttons
 
 `frames`: the emulator's JSON lines (see sim_runtime.cpp); `scenario`: a Scenario (its gestures
 give the fingers, knob angles and captions). Needs Pillow.
@@ -14,6 +15,7 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 S = 2                                               # supersampling
 W, H = 900, 560
+POCKET_W, POCKET_H = 520, 520
 # drawn as the pad looks in a dim room: the lit silicone is what you see
 BACKGROUND = (250, 250, 251)
 BODY = (36, 37, 42)
@@ -43,10 +45,13 @@ def _font(size):
 
 # ---------------------------------------------------------------- geometry (unscaled)
 
-def pad_box(i):
+def pad_box(i, board="full"):
     """Pad i (0 = bottom-left, row by row upwards)."""
     col, row = i % 4, 3 - i // 4
-    x, y = 270 + col * 112, 52 + row * 112
+    if board == "pocket":
+        x, y = 42 + col * 112, 42 + row * 112
+    else:
+        x, y = 270 + col * 112, 52 + row * 112
     return (x, y, x + 100, y + 100)
 
 
@@ -83,32 +88,35 @@ def _scaled(box):
     return tuple(v * S for v in box)
 
 
-def draw_frame(frame, state, caption=None):
-    img = Image.new("RGB", (W * S, H * S + (60 * S if caption is not None else 0)), BACKGROUND)
+def draw_frame(frame, state, caption=None, board="full"):
+    pocket = board == "pocket"
+    w, h = (POCKET_W, POCKET_H) if pocket else (W, H)
+    img = Image.new("RGB", (w * S, h * S + (60 * S if caption is not None else 0)), BACKGROUND)
     glow = Image.new("RGB", img.size, (0, 0, 0))
     d, g = ImageDraw.Draw(img), ImageDraw.Draw(glow)
 
     # body with a soft shadow
     shadow = Image.new("L", img.size, 0)
-    ImageDraw.Draw(shadow).rounded_rectangle(_scaled((26, 30, W - 14, H - 10)), 30 * S, fill=70)
+    ImageDraw.Draw(shadow).rounded_rectangle(_scaled((26, 30, w - 14, h - 10)), 30 * S, fill=70)
     shadow = shadow.filter(ImageFilter.GaussianBlur(10 * S))
     img.paste((150, 150, 150), (0, 0), shadow)
-    d.rounded_rectangle(_scaled((20, 20, W - 20, H - 20)), 30 * S, fill=BODY, outline=EDGE, width=2 * S)
+    d.rounded_rectangle(_scaled((20, 20, w - 20, h - 20)), 30 * S, fill=BODY, outline=EDGE, width=2 * S)
 
     small, tiny = _font(13), _font(10)
-    # knobs
-    for k in range(8):
-        cx, cy = knob_center(k)
-        d.text((cx * S, (cy - 44) * S), str(k + 1), fill=LABEL, font=small, anchor="mm")
-        d.ellipse(_scaled((cx - 33, cy - 33, cx + 33, cy + 33)), fill=KNOB_RING)
-        d.ellipse(_scaled((cx - 27, cy - 27, cx + 27, cy + 27)), fill=KNOB)
-        a = math.radians(state["knob_angle"][k] - 90)
-        d.line(_scaled((cx + 9 * math.cos(a), cy + 9 * math.sin(a), cx + 23 * math.cos(a), cy + 23 * math.sin(a))),
-               fill=(235, 235, 235), width=4 * S)
+    if not pocket:
+        # knobs
+        for k in range(8):
+            cx, cy = knob_center(k)
+            d.text((cx * S, (cy - 44) * S), str(k + 1), fill=LABEL, font=small, anchor="mm")
+            d.ellipse(_scaled((cx - 33, cy - 33, cx + 33, cy + 33)), fill=KNOB_RING)
+            d.ellipse(_scaled((cx - 27, cy - 27, cx + 27, cy + 27)), fill=KNOB)
+            a = math.radians(state["knob_angle"][k] - 90)
+            d.line(_scaled((cx + 9 * math.cos(a), cy + 9 * math.sin(a), cx + 23 * math.cos(a), cy + 23 * math.sin(a))),
+                   fill=(235, 235, 235), width=4 * S)
 
     # pads
     for i in range(16):
-        box = pad_box(i)
+        box = pad_box(i, board)
         color, level = led_to_display(frame["pads"][i])
         fill = PAD_OFF if color is None else mix(PAD_OFF, color, level)
         d.rounded_rectangle(_scaled(box), 9 * S, fill=fill, outline=(78, 80, 90), width=S)
@@ -118,7 +126,7 @@ def draw_frame(frame, state, caption=None):
         d.text(((box[0] + 8) * S, (box[1] + 6) * S), str(i + 1), fill=(120, 122, 132), font=tiny)
 
     # buttons
-    for b in range(10):
+    for b in range(0 if pocket else 10):
         box = button_box(b)
         lit = frame["leds"][b]
         face = mix(BUTTON_FACE, BUTTON_LED[b], 0.75) if lit else BUTTON_FACE
@@ -137,14 +145,15 @@ def draw_frame(frame, state, caption=None):
     # fingers
     d = ImageDraw.Draw(img, "RGBA")
     for i, pressure in state["pads_held"].items():
-        _finger(d, img, pad_box(i), pressure)
-    for b in state["buttons_held"]:
-        _finger(d, img, button_box(b), 0.5, small=True)
-    for k, direction in state["knobs_turning"].items():
-        _knob_fingers(d, knob_center(k), direction)
+        _finger(d, img, pad_box(i, board), pressure)
+    if not pocket:
+        for b in state["buttons_held"]:
+            _finger(d, img, button_box(b), 0.5, small=True)
+        for k, direction in state["knobs_turning"].items():
+            _knob_fingers(d, knob_center(k), direction)
 
     if caption is not None:
-        d.text((W / 2 * S, (H + 22) * S), caption, fill=(40, 40, 46), font=_font(19), anchor="mm")
+        d.text((w / 2 * S, (h + 22) * S), caption, fill=(40, 40, 46), font=_font(19), anchor="mm")
     return img.resize((img.width // S, img.height // S), Image.LANCZOS)
 
 
@@ -193,9 +202,9 @@ def load_frames(text):
     return frames, midi
 
 
-def render(frames, scenario, out, at=None, scale=1.0):
+def render(frames, scenario, out, at=None, scale=1.0, board="full"):
     def image(f):
-        img = draw_frame(f, scenario.state_at(f["t"]), scenario.caption_at(f["t"]))
+        img = draw_frame(f, scenario.state_at(f["t"]), scenario.caption_at(f["t"]), board)
         return img.resize((int(img.width * scale), int(img.height * scale)), Image.LANCZOS) if scale != 1 else img
 
     if at is not None:
@@ -212,4 +221,5 @@ def render(frames, scenario, out, at=None, scale=1.0):
     palette = sheet.quantize(colors=160, method=Image.Quantize.MEDIANCUT)
     images = [im.quantize(palette=palette, dither=Image.Dither.NONE) for im in rgb]
     step = frames[1]["t"] - frames[0]["t"] if len(frames) > 1 else 40
-    images[0].save(out, save_all=True, append_images=images[1:], duration=int(step), loop=0, optimize=False)
+    delay = max(10, round(step / 10) * 10)     # GIF delays are whole centiseconds
+    images[0].save(out, save_all=True, append_images=images[1:], duration=delay, loop=0, optimize=False)

@@ -5,7 +5,7 @@ write sketches for its 16 RGB velocity pads, USB-MIDI and Bluetooth MIDI (the fu
 adds 8 knobs and 10 buttons), and upload them over USB like any Arduino board. Part of the
 [open SMC-PAD firmware](..).
 
-<p align="center"><img src="../docs/img/pocket-hero.jpg" width="480" alt="The SMC-PAD Pocket (SK16-V03), the board this core runs on"></p>
+<p align="center"><img src="../docs/img/arduino-demo.gif" width="480" alt="The Pocket playing the demo sketch in the emulator: pads light up and fade as they are played, the LED following the pressure"></p>
 
 ```cpp
 #include <SMCPad.h>
@@ -51,6 +51,8 @@ void loop() {
 
 - **Sketches:** [`sketches/SMCPadStock`](sketches/SMCPadStock) behaves like the factory firmware
   (Performance and DAW/Mackie presets, note repeat, aftertouch …);
+  [`sketches/PocketDemo`](sketches/PocketDemo) is the small sketch in the animation above —
+  notes, velocity, polyphonic aftertouch and pad colours;
   [GrooveBox](https://github.com/fedepaj/groovebox) is a full step sequencer.
 - **An emulator** ([`sim/`](sim)): any sketch runs on your computer with the real libraries, and
   scenarios of gestures turn into GIFs.

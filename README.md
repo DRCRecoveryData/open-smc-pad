@@ -3,7 +3,7 @@
 <p align="center"><b>Open firmware for the M-Vave SMC-PAD Pocket (SK16)</b><br>
 a bootloader, an Arduino core and a step sequencer for a 16-pad MIDI controller</p>
 
-<p align="center"><img src="docs/img/pocket-hero.jpg" width="480" alt="The M-Vave SMC-PAD Pocket (SK16-V03): 16 pad sensors with their RGB LEDs"></p>
+<p align="center"><img src="docs/img/pocket-play.gif" width="480" alt="The SMC-PAD Pocket playing the demo sketch in the emulator: 16 RGB pads light up as they are hit, brighter with pressure"></p>
 
 <p align="center">
 <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT"></a>

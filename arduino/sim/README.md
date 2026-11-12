@@ -21,6 +21,10 @@ s.caption("PLAY").tap(BUTTON.PLAY).wait(1500)
 frames, midi = s.make("path/to/GrooveBox", "first-beat.gif")
 ```
 
+`Scenario(board="pocket")` draws the Pocket instead: its 16 pads, without the knobs and buttons
+of the full-size board. `demo.py` renders the README animations (`docs/img/pocket-play.gif`,
+`docs/img/arduino-demo.gif`) from [`sketches/PocketDemo`](../sketches/PocketDemo).
+
 Needs `clang++` and Python with Pillow (`uv run --with pillow ...`). Time is virtual: a
 scenario of a minute renders in seconds. `build.sh <sketch dir>` alone gives the emulator
 program (`<scenario file> <ms> [fps]`, frames and outgoing MIDI as JSON lines on stdout; the
