@@ -16,8 +16,9 @@ listens.
   the pressure (not while repeating or arpeggiating);
 - the loop recorder captures the notes the pad plays — chords, repeats, arp steps — against
   the clock and repeats a 1 to 4 bar loop, with the top-row pads showing the position;
-  another pass layers an overdub over the take and undo drops the last layer; the loop lives
-  in RAM (lost on power cycle) and keeps the notes as played, so a later key change transposes
+  another pass layers an overdub over the take and undo drops the last layer; a transpose CC
+  moves the playback up or down without touching the take; the loop lives in RAM (lost on
+  power cycle) and keeps the notes as played, so a later key change transposes
   live play but not the loop;
 - the pad's LED is its colour around the wheel: root pads sit brighter towards white,
   pressure brightens a pad, a repeat or arp step flashes the pads the note came from, and a
@@ -41,6 +42,7 @@ On any channel, from USB or BLE. Everything is kept in flash.
 | 29 | arp octaves: 1..4 (the arp walk repeats the merged notes an octave up) |
 | 30 | loop: 0 stop (the take is kept), 1 play, 2 record a new take (one loop length, then it plays), 3 clear, 4 overdub a new layer over the take, 5 undo the last layer (8 layers) |
 | 31 | loop length: 1..4 bars, default 2 (changing it stops the loop) |
+| 32 | loop transpose: 0..24 = -12..+12 semitones, 12 = as recorded (playback only, the take is untouched) |
 
 ## On the pad
 

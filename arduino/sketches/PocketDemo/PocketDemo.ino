@@ -19,9 +19,10 @@
 //     an external 24-PPQN MIDI clock (start/continue/stop honoured) and falls back to the
 //     internal clock when the host's clock stops
 //   - loop recorder (CC 30: 0 stop, 1 play, 2 record, 3 clear, 4 overdub, 5 undo; CC 31: 1..4
-//     bars): it records the notes the sketch plays against the clock and repeats them; another
-//     pass layers over the take and undo drops the last layer; the top-row pads show the
-//     position while it runs (the loop is in RAM, lost on power cycle)
+//     bars; CC 32: 0..24 transposes the playback -12..+12 semitones): it records the notes the
+//     sketch plays against the clock and repeats them; another pass layers over the take and
+//     undo drops the last layer; the top-row pads show the position while it runs (the loop is
+//     in RAM, lost on power cycle)
 //   - each pad sends Note On/Off on channel 1, velocity from how hard it is hit
 //   - holding a pad sends polyphonic aftertouch (0xA0) for every note of its chord,
 //     following the pressure (repeating pads are articulated by their retriggers instead)
@@ -59,7 +60,7 @@ static const uint8_t ROOT_CC = 20, SCALE_CC = 21, CHORD_CC = 22;
 static const uint8_t LATCH_CC = 23, RATE_CC = 24, SWING_CC = 25, TEMPO_CC = 26, ARP_CC = 27;
 static const uint8_t SYNC_CC = 28;
 static const uint8_t ARP_OCT_CC = 29;
-static const uint8_t LOOP_CC = 30, LOOP_BARS_CC = 31;
+static const uint8_t LOOP_CC = 30, LOOP_BARS_CC = 31, LOOP_TRANSPOSE_CC = 32;
 static const uint8_t NUM_CHORDS = 3;                 // 0 single note, 1 triad, 2 seventh
 static const uint8_t NUM_ARPS = 5;                   // 0 whole chord, 1 up, 2 down, 3 up-down, 4 random
 static const uint16_t CLOCKS_PER_BAR = 96;           // 24 PPQN x 4 beats
@@ -152,6 +153,7 @@ static uint16_t loopLayerStart[LOOP_LAYERS];         // where each layer begins
 static uint8_t loopLayerCount;                       // layers stored, 0 = empty take
 static uint16_t loopDubBase;                         // events before the pass being recorded
 static bool loopFiring;                              // midi() is replaying the loop
+static int8_t loopTranspose;                         // semitones added to the playback
 
 static void settingsDefaults() {
   settings = Settings{SETTINGS_MAGIC, 0, DEFAULT_SCALE, DEFAULT_CHORD, 0, 0, 0, DEFAULT_BPM, 0, 0, 1};
@@ -517,8 +519,10 @@ static uint16_t loopLengthClocks() {
 }
 
 static void loopOffs() {                             // silence whatever the playback left on
+  loopFiring = true;
   for (int n = 0; n < 128; n++)
     if (loopNoteBits[n >> 5] & (1u << (n & 31))) midi(0x80 | CH, (uint8_t)n, 0);
+  loopFiring = false;
   for (int w = 0; w < 4; w++) loopNoteBits[w] = 0;
 }
 
@@ -542,6 +546,13 @@ static void setLoopBars(uint8_t bars) {
   if (bars == loopBars) return;
   loopStop();
   loopBars = bars;
+}
+
+static void setLoopTranspose(uint8_t value) {
+  int8_t transpose = (int8_t)constrain(value, 0, 24) - 12;   // 0..24 = -12..+12
+  if (transpose == loopTranspose) return;
+  loopOffs();                                        // let go of the old pitch first
+  loopTranspose = transpose;
 }
 
 static void setLoop(uint8_t value) {
@@ -590,10 +601,15 @@ static void loopFire() {
   loopFiring = true;
   for (uint16_t i = 0; i < limit; i++) {
     if (loopEvents[i].at != loopPos) continue;
-    uint8_t note = loopEvents[i].note;
-    midi(loopEvents[i].status, note, loopEvents[i].vel);
-    if ((loopEvents[i].status & 0xF0) == 0x90) loopNoteBits[note >> 5] |= 1u << (note & 31);
-    else loopNoteBits[note >> 5] &= ~(1u << (note & 31));
+    uint8_t note = constrain((int)loopEvents[i].note + loopTranspose, 0, 127);
+    uint32_t bit = 1u << (note & 31);
+    if ((loopEvents[i].status & 0xF0) == 0x90) {
+      midi(loopEvents[i].status, note, loopEvents[i].vel);
+      loopNoteBits[note >> 5] |= bit;
+    } else if (loopNoteBits[note >> 5] & bit) {      // only let go of what it holds
+      midi(loopEvents[i].status, note, loopEvents[i].vel);
+      loopNoteBits[note >> 5] &= ~bit;
+    }
   }
   loopFiring = false;
 }
@@ -681,6 +697,7 @@ static void midiIn() {                               // the next CC 20..26 from 
       else if (p.byte2 == ARP_OCT_CC) setArpOct(p.byte3);
       else if (p.byte2 == LOOP_CC) setLoop(p.byte3);
       else if (p.byte2 == LOOP_BARS_CC) setLoopBars(p.byte3);
+      else if (p.byte2 == LOOP_TRANSPOSE_CC) setLoopTranspose(p.byte3);
     }
   }
 }
