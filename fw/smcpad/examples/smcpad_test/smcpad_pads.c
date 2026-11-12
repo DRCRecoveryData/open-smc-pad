@@ -18,6 +18,10 @@
 #include "asm/gpio.h"
 #include "asm/adc_api.h"
 #include "asm/clock.h"
+#include "smcpad_usb_cfg.h"               /* SMCPAD_POCKET (fw/build.sh) */
+#if SMCPAD_POCKET
+#include "smcpad_rt.h"                    /* the Pocket pad service (arduino/smcpad_hw.c) */
+#endif
 
 extern void smcpad_dbg_puts(const char *s);
 extern void smcpad_dbg_kv(const char *tag, u32 value);
@@ -35,8 +39,16 @@ extern void clr_wdt(void);
 #define LED_BYTES       548             /* as the stock firmware sends it */
 #define LED_SPI_HZ      6000000         /* SPI clock = clk / (2 * (BAUD + 1)) */
 
+#if SMCPAD_POCKET
+/* Pocket: the pad service hands out values already indexed by logical pad (smcpad_hw.c
+ * maps mux positions and direct channels), so the wizard sees identity here; the chain
+ * order is the stock Pocket table (pocket_app.bin VMA 0x1E15984). */
+static const u8 stock_adc_to_pad[NPADS] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 };
+static const u8 stock_pad_to_led[NPADS] = { 2, 3, 4, 5, 1, 8, 7, 6, 0, 9, 10, 11, 15, 14, 13, 12 };
+#else
 static const u8 stock_adc_to_pad[NPADS] = { 2, 0, 1, 3, 15, 14, 12, 13, 6, 4, 5, 7, 8, 9, 11, 10 };
 static const u8 stock_pad_to_led[NPADS] = { 11, 4, 2, 7, 10, 14, 6, 9, 0, 5, 15, 1, 13, 12, 8, 3 };
+#endif
 
 /* ------------------------------------------------------------------ RGB LEDs */
 
@@ -136,6 +148,32 @@ void smcpad_cmd_rgb_walk(void)
 
 static u8 pads_ready;
 
+#if SMCPAD_POCKET
+/* The pad service owns the ADC (TIMER3-chained ISR over the eight mux positions and the
+ * eight direct channels), the 4051 selects and the chain RGB; this console only reads it. */
+static void pads_init(void)
+{
+    if (!pads_ready) {
+        pads_ready = 1;
+        smcpad_hw_begin();
+        smcpad_delay(50);
+    }
+}
+
+static void pads_read(u16 *out)
+{
+    u32 rounds;
+
+    pads_init();
+    rounds = smcpad_pad_rounds();
+    while (smcpad_pad_rounds() < rounds + 2) {
+        smcpad_delay(5);
+    }
+    for (u32 i = 0; i < NPADS; i++) {
+        out[i] = smcpad_pad_raw((int)i);
+    }
+}
+#else
 static void pads_init(void)
 {
     static const u32 sel[3] = { IO_PORTB_02, IO_PORTB_03, IO_PORTC_04 };
@@ -178,6 +216,7 @@ static void pads_read(u16 *out)
         out[8 + m] = adc_get_value(AD_CH_PA6);
     }
 }
+#endif /* SMCPAD_POCKET */
 
 static void put_num(char **p, u32 v, int width)
 {
@@ -203,7 +242,11 @@ void smcpad_cmd_pads_live(void)
     char line[NPADS * 5 + 4], *p;
     char c;
 
+#if SMCPAD_POCKET
+    smcpad_dbg_puts("pocket pads: logical 0..7 (mux on PA6) | 8..15 (direct)  (any key stops)\r\n");
+#else
     smcpad_dbg_puts("pad ADC positions: PA4 mux 0..7 | PA6 mux 0..7  (any key stops)\r\n");
+#endif
     while (!smcpad_dbg_read(&c, 1)) {
         pads_read(v);
         p = line;

@@ -648,6 +648,14 @@ static int interrupted(void)
 static void cmd_help(void)
 {
     smcpad_dbg_puts(
+#if SMCPAD_POCKET
+        "\r\npocket build: pads and chain LEDs only (no 595s, no key matrix)\r\n"
+        "  m                 show the pad pins\r\n"
+        "  A                 live pad values, by logical pad 0..15\r\n"
+        "  W                 pad wizard: press pads 1..16 (top-left first), maps pad -> LED\r\n"
+        "  n [<i> <rrggbb>]  chain LED i (n a <rrggbb> = all, n = off)\r\n"
+        "  N                 walk the chain one LED at a time\r\n"
+#endif
         "\r\ncommands (pins are a0..a8 b0..b8 c0..c5):\r\n"
         "  m                 show pin assignment\r\n"
         "  o <pin>           drive high        l <pin>  drive low\r\n"
@@ -689,6 +697,11 @@ static void cmd_help(void)
 
 static void cmd_map(void)
 {
+#if SMCPAD_POCKET
+    smcpad_dbg_puts("pocket pins: 4051 COM PA6, selects PA5/PC1/PC3 (assumed S0/S1/S2);\r\n"
+                    "  direct pads PA0 PA1 PA3 PA4 PB7 PC2 PC4 PC5; chain LED PB1 (SPI1)\r\n");
+    return;
+#else
     smcpad_dbg_puts("595 pins:\r\n");
     say_pin("  clock  ", sr_clk);
     say_pin("  data   ", sr_dat);
@@ -702,6 +715,7 @@ static void cmd_map(void)
     for (u32 i = 0; i < 4; i++) {
         say_pin("  segment", led_seg_pins[i]);
     }
+#endif /* SMCPAD_POCKET */
 }
 
 static void cmd_release_all(void)

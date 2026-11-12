@@ -2,6 +2,7 @@
  * SMC-PAD hardware service: everything with timing, in the background (docs/hardware.md has the
  * map this is built on).
  *
+ * Reference board (SK12-V2.1):
  * TIMER3 at 4 kHz:
  *   - key matrix: two 74HC595 (bit-banged: PB6 clock, PB7 data, PB4 latch, /OE PB5) select one
  *     of 16 columns, one-hot low; PB0 senses the encoders, PC1 the buttons. Each tick reads the
@@ -15,6 +16,13 @@
  *   the next. Per pad: above the on threshold an attack window looks for the peak -> note on
  *   with a velocity; below the off threshold -> note off; in between the value is the pressure.
  * Pad RGB LEDs: WS2812-style chain on PB1 from SPI1 by DMA (frame as the stock firmware sends it).
+ *
+ * Pocket (SK16-V03, SMCPAD_POCKET=1): no matrix, no encoders, no button LEDs. 8 pads go straight
+ * to SAR channels (PA0/PA1/PA3/PA4/PB7/PC2/PC4/PC5), the other 8 through one HCF4051 whose COM
+ * is PA6 (channel 4) and whose selects are PA5/PC1/PC3. The select bit order is the stock
+ * firmware's, which lives in ROM and could not be read out; if it turns out to be another order
+ * the eight muxed pads come out permuted and the pad remap table fixes it without a reflash.
+ * The 16 RGB LEDs and the TIMER3 tick (used for velocity timing) are the same.
  */
 #include "system/includes.h"
 #include "asm/gpio.h"
@@ -23,6 +31,7 @@
 #include "asm/clock.h"
 #include "smcpad_rt.h"
 #include "smcpad_spin.h"
+#include "smcpad_usb_cfg.h"
 
 #define REG32(a)            (*(volatile u32 *)(a))
 #define PORT_OUT(b)         REG32((b) + 0x00)
@@ -33,6 +42,17 @@
 
 /* ------------------------------------------------------------------ tables (docs/hardware.md) */
 
+#if SMCPAD_POCKET
+/* pad -> position in the RGB chain (stock table at VMA 0x1E15984) */
+static const u8 pad_to_led[SMCPAD_NUM_PADS] = { 2, 3, 4, 5, 1, 8, 7, 6, 0, 9, 10, 11, 15, 14, 13, 12 };
+/* 4051 channel -> pad (docs: muxed pads on ch0..7 = pads 6,10,14,5,3,7,2,1) */
+static const u8 pocket_mux_pad[8] = { 6, 10, 14, 5, 3, 7, 2, 1 };
+/* direct scan steps -> AD_CH_* (PA3, PA4, PB7, PC2, PA1, PC5, PC4, PA0) -> pad */
+static const u8 pocket_direct_ch[8] = { 2, 3, 9, 10, 1, 12, 11, 0 };
+static const u8 pocket_direct_pad[8] = { 0, 4, 8, 9, 11, 12, 13, 15 };
+/* 4051 selects, assumed S0 = PA5, S1 = PC1, S2 = PC3 */
+static const u32 pocket_sel[3] = { IO_PORTA_05, IO_PORTC_01, IO_PORTC_03 };
+#else
 /* buttons, panel order -> matrix column on PC1 */
 static const u8 button_col[SMCPAD_NUM_BUTTONS] = { 2, 3, 4, 5, 6, 7, 9, 8, 0, 1 };
 /* button LEDs, panel order -> (phase << 4 | segment) */
@@ -43,6 +63,7 @@ static const u8 encoder_pair[SMCPAD_NUM_ENCODERS] = { 7, 5, 0, 4, 3, 6, 2, 1 };
 static const u8 adc_to_pad[SMCPAD_NUM_PADS] = { 2, 0, 1, 3, 15, 14, 12, 13, 6, 4, 5, 7, 8, 9, 11, 10 };
 /* pad -> position in the RGB chain */
 static const u8 pad_to_led[SMCPAD_NUM_PADS] = { 11, 4, 2, 7, 10, 14, 6, 9, 0, 5, 15, 1, 13, 12, 8, 3 };
+#endif
 
 /* ------------------------------------------------------------------ events */
 
@@ -75,6 +96,7 @@ int smcpad_event_get(smcpad_event_t *ev)
 
 /* ------------------------------------------------------------------ key matrix + button LEDs */
 
+#if !SMCPAD_POCKET
 static volatile u32 matrix_now;             /* bit (col * 2 + sense): closed; sense 0 = PB0, 1 = PC1 */
 static u32 matrix_acc;
 static u8 scan_col;
@@ -168,6 +190,7 @@ static void matrix_pass_done(u32 m)
         buttons_state = b;
     }
 }
+#endif /* !SMCPAD_POCKET */
 
 static volatile u32 hw_ticks, hw_ticks_hi;  /* TIMER3 periods (250 us) since smcpad_hw_begin() */
 static u8 hw_running;
@@ -180,6 +203,7 @@ static void hw_tick_isr(void)
         hw_ticks_hi++;
     }
 
+#if !SMCPAD_POCKET
     phases_off();
     for (volatile int i = 0; i < SMCPAD_SPIN(20); i++) {
     }                                       /* let PC1 recover from a phase-2 LED */
@@ -201,10 +225,15 @@ static void hw_tick_isr(void)
         segments_set(led_seg_mask[led_phase]);
         phase_on(led_phase);
     }
+#endif
 }
 
 void smcpad_led_set(int led, int on)
 {
+#if SMCPAD_POCKET
+    (void)led;                              /* no button LEDs on the Pocket */
+    (void)on;
+#else
     if (led < 0 || led >= SMCPAD_NUM_BUTTONS) {
         return;
     }
@@ -222,21 +251,34 @@ void smcpad_led_set(int led, int on)
     led_seg_mask[0] = masks[0];
     led_seg_mask[1] = masks[1];
     led_seg_mask[2] = masks[2];
+#endif
 }
 
 int smcpad_button(int b)
 {
+#if SMCPAD_POCKET
+    return 0;
+#else
     return b >= 0 && b < SMCPAD_NUM_BUTTONS && (buttons_state & (1u << b));
+#endif
 }
 
 int32_t smcpad_encoder(int e)
 {
+#if SMCPAD_POCKET
+    return 0;
+#else
     return e >= 0 && e < SMCPAD_NUM_ENCODERS ? encoder_count[e] : 0;
+#endif
 }
 
 uint32_t smcpad_matrix_raw(void)
 {
+#if SMCPAD_POCKET
+    return 0;
+#else
     return matrix_now;
+#endif
 }
 
 /* ------------------------------------------------------------------ pads (ADC chain) */
@@ -262,9 +304,16 @@ static volatile u32 adc_rounds;
 
 static void mux_select(u32 m)
 {
+#if SMCPAD_POCKET
+    /* S0 = PA5, S1 = PC1, S2 = PC3 (assumed order; a wrong order only permutes the 8 muxed pads) */
+    if (m & 1) PORT_OUT(PORTA) |= 1u << 5; else PORT_OUT(PORTA) &= ~(1u << 5);
+    if (m & 2) PORT_OUT(PORTC) |= 1u << 1; else PORT_OUT(PORTC) &= ~(1u << 1);
+    if (m & 4) PORT_OUT(PORTC) |= 1u << 3; else PORT_OUT(PORTC) &= ~(1u << 3);
+#else
     if (m & 1) PORT_OUT(PORTB) |= 1u << 2; else PORT_OUT(PORTB) &= ~(1u << 2);
     if (m & 2) PORT_OUT(PORTB) |= 1u << 3; else PORT_OUT(PORTB) &= ~(1u << 3);
     if (m & 4) PORT_OUT(PORTC) |= 1u << 4; else PORT_OUT(PORTC) &= ~(1u << 4);
+#endif
 }
 
 static void adc_start(u32 pos)
@@ -272,7 +321,11 @@ static void adc_start(u32 pos)
     u32 con = 0b110;                        /* clock divider, as the SDK's adc_sample() */
 
     con |= 0x6u << 12;                      /* start delay (x 8 ADC clocks): the mux settles */
+#if SMCPAD_POCKET
+    con |= (pos < 8 ? AD_CH_PA6 : pocket_direct_ch[pos - 8]) << 8;
+#else
     con |= (pos < 8 ? AD_CH_PA4 : AD_CH_PA6) << 8;
+#endif
     con |= BIT(3) | BIT(5) | BIT(6);        /* as adc_sample(): ?, interrupt enable, clear */
     JL_ADC->CON = con;
     JL_ADC->CON |= BIT(4);                  /* enable */
@@ -345,10 +398,20 @@ static void hw_adc_isr(void)
         adc_start(0);                       /* the mux is on pad position 0 already */
         return;
     }
+#if SMCPAD_POCKET
+    pad_sample(pos < 8 ? pocket_mux_pad[pos] : pocket_direct_pad[pos - 8], v);
+#else
     pad_sample(adc_to_pad[pos], v);
+#endif
     pos = (pos + 1) % SMCPAD_NUM_PADS;
     adc_pos = (u8)pos;
+#if SMCPAD_POCKET
+    if (pos < 8) {
+        mux_select(pos);                    /* direct slots leave the mux where it is */
+    }
+#else
     mux_select(pos & 7);
+#endif
     if (pos == 0 && (++adc_rounds & 63) == 0) {
         pmu_pos = 1;
         adc_start_pmu(pmu_ch[0]);
@@ -498,14 +561,36 @@ void smcpad_delay_us(uint32_t us)
 void smcpad_hw_begin(void)
 {
     static u8 started;
-    static const u32 outputs_b[] = { IO_PORTB_02, IO_PORTB_03, IO_PORTB_04, IO_PORTB_05, IO_PORTB_06, IO_PORTB_07 };
-    static const u32 led_pins[] = { IO_PORTA_03, IO_PORTC_02, IO_PORTC_03,
-                                    IO_PORTA_05, IO_PORTA_02, IO_PORTA_00, IO_PORTA_01 };
 
     if (started) {
         return;
     }
     started = 1;
+
+#if SMCPAD_POCKET
+    /* 4051 selects, all low */
+    for (u32 i = 0; i < ARRAY_SIZE(pocket_sel); i++) {
+        gpio_set_pull_up(pocket_sel[i], 0);
+        gpio_set_pull_down(pocket_sel[i], 0);
+        gpio_direction_output(pocket_sel[i], 0);
+    }
+    /* pad inputs: the 4051 COM (PA6) and the eight direct channels, analog */
+    {
+        static const u32 adc_pins[] = { IO_PORTA_00, IO_PORTA_01, IO_PORTA_03, IO_PORTA_04,
+                                        IO_PORTB_07, IO_PORTC_02, IO_PORTC_04, IO_PORTC_05,
+                                        IO_PORTA_06 };
+
+        for (u32 i = 0; i < ARRAY_SIZE(adc_pins); i++) {
+            gpio_set_direction(adc_pins[i], 1);
+            gpio_set_die(adc_pins[i], 0);
+            gpio_set_pull_up(adc_pins[i], 0);
+            gpio_set_pull_down(adc_pins[i], 0);
+        }
+    }
+#else
+    static const u32 outputs_b[] = { IO_PORTB_02, IO_PORTB_03, IO_PORTB_04, IO_PORTB_05, IO_PORTB_06, IO_PORTB_07 };
+    static const u32 led_pins[] = { IO_PORTA_03, IO_PORTC_02, IO_PORTC_03,
+                                    IO_PORTA_05, IO_PORTA_02, IO_PORTA_00, IO_PORTA_01 };
 
     /* 595s and 4051 select, all low (/OE on) */
     for (u32 i = 0; i < ARRAY_SIZE(outputs_b); i++) {
@@ -530,6 +615,7 @@ void smcpad_hw_begin(void)
     gpio_set_pull_up(IO_PORTA_04, 0); gpio_set_pull_down(IO_PORTA_04, 0);
     gpio_set_direction(IO_PORTA_06, 1); gpio_set_die(IO_PORTA_06, 0);
     gpio_set_pull_up(IO_PORTA_06, 0); gpio_set_pull_down(IO_PORTA_06, 0);
+#endif
     /* RGB: PB1 output low, SPI1 on port A as the stock firmware */
     gpio_set_pull_up(IO_PORTB_01, 0);
     gpio_set_pull_down(IO_PORTB_01, 0);
@@ -538,8 +624,10 @@ void smcpad_hw_begin(void)
     SPI1_CON = 0x4021;
     smcpad_rgb_show();                      /* all off */
 
-    /* the matrix / LED tick: TIMER3, 24 MHz oscillator, 250 us */
+    /* the timing tick: TIMER3, 24 MHz oscillator, 250 us */
+#if !SMCPAD_POCKET
     sr_write(0xFFFF);
+#endif
     request_irq(IRQ_TIME3_IDX, 2, hw_tick_isr, 0);
     JL_TIMER3->CON = BIT(14);
     JL_TIMER3->CNT = 0;
@@ -548,7 +636,11 @@ void smcpad_hw_begin(void)
     hw_running = 1;
 
     /* the pads: take the ADC over from the SDK's scan (occupy mode stops it), then chain */
+#if SMCPAD_POCKET
+    adc_enter_occupy_mode(AD_CH_PA6);
+#else
     adc_enter_occupy_mode(AD_CH_PA4);
+#endif
     for (u32 n = 0; (JL_ADC->CON & BIT(4)) && n < 100000; n++) {
     }
     request_irq(IRQ_SARADC_IDX, 2, hw_adc_isr, 0);

@@ -14,4 +14,9 @@
 #ifndef SMCPAD_APP_DIR
 #define SMCPAD_APP_DIR 0x1000
 #endif
+/* 1: the board is the SMC-PAD Pocket (SK16 V03): one HCF4051, no key matrix, no encoders,
+ * no button LEDs. fw/build.sh can override it (SMCPAD_POCKET=0|1). */
+#ifndef SMCPAD_POCKET
+#define SMCPAD_POCKET 0
+#endif
 #endif

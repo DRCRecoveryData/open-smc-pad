@@ -35,7 +35,8 @@ SMCPAD_LFLAGS=""
 [ "$SMCPAD_ARDUINO" = 1 ] && SMCPAD_LFLAGS="--unresolved-symbols=ignore-all"
 { printf '#define SMCPAD_TINYUSB %s\n' "${SMCPAD_TINYUSB:-0}"
   printf '#define SMCPAD_APP_DIR %s\n' "$APP_DIR"
-  printf '#define SMCPAD_ARDUINO %s\n' "$SMCPAD_ARDUINO"; } > "$APP/usb/smcpad_usb_build.h"
+  printf '#define SMCPAD_ARDUINO %s\n' "$SMCPAD_ARDUINO"
+  printf '#define SMCPAD_POCKET %s\n' "${SMCPAD_POCKET:-0}"; } > "$APP/usb/smcpad_usb_build.h"
 echo "USB stack: $([ "${SMCPAD_TINYUSB:-0}" = 1 ] && echo TinyUSB || echo JieLi SDK)"
 
 docker image inspect jl-build >/dev/null 2>&1 || \
