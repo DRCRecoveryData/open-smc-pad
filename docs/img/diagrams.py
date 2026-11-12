@@ -41,7 +41,7 @@ def architecture():
         ("#2ecc71", "Runtime  (smcpad_rt.h)", "pads 340 Hz + pressure · knobs · LEDs · µs timing · USB-MIDI · BLE GATT · flash"),
         ("#1fa2c9", "JieLi SDK  +  TinyUSB", "OS, Bluetooth stack (precompiled core)  ·  our BR25 USB driver"),
         ("#5b6cf0", "Bootloader", "USB DFU · self-update · falls back to DFU after a crash loop"),
-        ("#3b3e48", "SMC-PAD: JieLi AC6966C", "16 RGB pads · 8 encoders · 10 buttons · USB-C · Bluetooth 5 · MIDI out"),
+        ("#3b3e48", "SMC-PAD Pocket: JieLi AC6966C", "16 RGB pads · one HCF4051 · USB-C · Bluetooth 5 · battery"),
     ]
     w, h = 900, 470
     body = MARKER

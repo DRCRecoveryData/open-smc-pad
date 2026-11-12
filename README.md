@@ -36,11 +36,11 @@ This project replaces its firmware, completely and reversibly, with one you can 
 
 <table>
 <tr>
-<td><img src="docs/img/board-front.jpg" alt="The SMC-PAD board, front: the 16 pad sensors, encoders, shift registers"></td>
-<td><img src="docs/img/board-back.jpg" alt="The board, back"></td>
+<td><img src="docs/img/board-front.jpg" alt="The SMC-PAD Pocket board, front: the 16 pad sensors with their RGB LEDs"></td>
+<td><img src="docs/img/board-back.jpg" alt="The Pocket board, back: USB-C, the JieLi AC6966C and the HCF4051 pad multiplexer"></td>
 </tr>
-<tr><td align="center"><sub>The board (SK12-V2.1): pad sensors with their RGB LEDs, the 8 encoders, two 74HC595 for the keys</sub></td>
-<td align="center"><sub>The back: power switch, USB-C and the 3.5 mm MIDI out, top right</sub></td></tr>
+<tr><td align="center"><sub>The Pocket board (SK16-V03): 16 pad sensors with their RGB LEDs, one HCF4051 pad multiplexer</sub></td>
+<td align="center"><sub>The back: USB-C, the JieLi AC6966C, the HCF4051, and the battery/NTC connectors</sub></td></tr>
 </table>
 
 ## Install
