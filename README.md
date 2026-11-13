@@ -81,7 +81,9 @@ script uploads a first firmware. Every byte is read back before anything is swit
 something does not check out, the stock firmware simply boots again.
 
 Afterwards any firmware goes on over USB: from the Arduino IDE, or `dfu-util -d 1209:0002 -a 0 -D
-firmware.bin` with the pad in its bootloader (hold **SHIFT + PLAY** while switching it on).
+firmware.bin` with the pad in its bootloader. The Pocket has no buttons: put it there with the
+[web UI](host/webui)'s **Reboot into DFU** (a 1200-baud touch on the serial port). On the SK12,
+**SHIFT + PLAY** held at power-up do the same.
 
 ### The Arduino core
 

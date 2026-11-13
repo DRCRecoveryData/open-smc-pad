@@ -350,8 +350,10 @@
       <div class="card">
         <h2>Force the bootloader open</h2>
         <ol class="note">
-          <li>Power the pad off. Hold <b>SHIFT + PLAY</b> and power it on: the SHIFT LED blinks
-            and the pad appears as DFU <span class="mono">1209:0002</span>.</li>
+          <li>The Pocket has no buttons: with its application running, <b>Reboot into DFU</b>
+            above sends the 1200-baud touch and it reboots as DFU
+            <span class="mono">1209:0002</span>. (The SK12 reference board can also be
+            powered on with <b>SHIFT + PLAY</b> held; its SHIFT LED then blinks.)</li>
           <li>An application that crash-loops is caught by the bootloader after four
             unconfirmed boots; a failed application CRC keeps it in DFU the same way.</li>
           <li>If the application still runs, this page can reboot it into the bootloader

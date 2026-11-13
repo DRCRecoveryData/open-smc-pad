@@ -76,7 +76,10 @@ bootloader stays in DFU mode when:
 
 - **SHIFT + PLAY are held at power-up** -- it scans those two key-matrix columns itself
   (bit-banged 595s, sense on PC1; a sense line that reads low with no column selected is
-  ignored) and puts every GPIO register it touched back;
+  ignored) and puts every GPIO register it touched back. This is the SK12 reference board,
+  which has a key matrix; the Pocket has only its 16 pads, no buttons (docs/hardware.md), so
+  there is no combo to hold there -- a running Pocket application is asked into DFU by the
+  1200-baud touch, and a broken one is caught by the checks below;
 - **the application crash-loops**: every boot increments a counter at 0x31AD8 (with a check
   word, so power-up RAM reads as 0); the application clears it after ~3 s of running
   (`smcpad_boot_ok()` in the console; the Arduino core must do the same). The 4th boot in a
@@ -84,7 +87,8 @@ bootloader stays in DFU mode when:
 - **the application area fails its CRC** (the whole area against the directory's data_crc,
   table-free CRC16 in `.start`, a few tens of ms at boot).
 
-In DFU mode the SHIFT button's LED blinks. The reason is in the diagnostics (`boot.magic`
+In DFU mode the SHIFT button's LED blinks (SK12; the Pocket has no button LEDs, so DFU there
+is only the USB device). The reason is in the diagnostics (`boot.magic`
 low digit: 1 asked, 2 no app, 3 keys, 4 crash loop, 5 bad CRC).
 
 Still open:
@@ -108,8 +112,9 @@ touching any hardware:
 
 - `BOOT_MAGIC_DFU` (0xB007DF00) at `0x31AE0` (the SDK's UPDATA_BEG, kept across a chip reset)
   -> clear it, DFU mode. The application sets it for the console's `B` and the 1200-baud touch.
-- no valid directory at 0x9000 (header CRC, entry = 0x1E08120, size within the area), SHIFT +
-  PLAY held, a crash loop, or a failed area CRC -> DFU mode (see "Hardening");
+- no valid directory at 0x9000 (header CRC, entry = 0x1E08120, size within the area), a crash
+  loop, or a failed area CRC -> DFU mode (see "Hardening"). SHIFT + PLAY held also does, on the
+  SK12 board that has them (the Pocket has only pads);
 - otherwise hand over.
 
 **Handing over** = what the uboot does for a directory elsewhere: the SDK walks its directory at
