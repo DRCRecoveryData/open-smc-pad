@@ -16,7 +16,7 @@ trap 'rm -rf "$OBJ"' EXIT
 
 INC="-I$CORE -I$A/smcpad/variants/smcpad -I$RT -I$SKETCH"
 for l in "$A"/smcpad/libraries/*/src; do INC="$INC -I$l"; done
-FLAGS="-O1 -g -w -DSMCPAD_SIM=1 -DHOST=1"    # HOST: the API skips its atexit declaration (glibc conflicts)
+FLAGS="-O1 -g -w -DSMCPAD_SIM=1 -DHOST=1 ${EXTRA_CXXFLAGS:-}"    # HOST: the API skips its atexit declaration (glibc conflicts)
 
 c() { clang -std=gnu11 $FLAGS $INC -c "$1" -o "$OBJ/$(basename "$1").o"; }
 cxx() { clang++ -std=gnu++14 $FLAGS $INC -c "$@"; }

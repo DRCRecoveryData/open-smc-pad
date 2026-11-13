@@ -6,6 +6,7 @@
     s.press(BUTTON.SHIFT); s.tap_pad(4); s.release(BUTTON.SHIFT)
     s.make("path/to/sketch", "out.gif")
 """
+import json
 import os
 import subprocess
 import sys
@@ -14,11 +15,20 @@ from types import SimpleNamespace
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-import render  # noqa: E402
 
 BUTTON = SimpleNamespace(BT=0, PAD_BANK=1, KNOB_BANK=2, LEFT=3, RIGHT=4, PLAY=5, STOP=6, REC=7, SHIFT=8,
                          NOTE_REPEAT=9)
 KNOB_DEGREES = 15                                   # how far one detent turns the drawn knob
+
+
+def load_frames(text):
+    """The emulator's JSON lines -> (frames, midi); same as render.load_frames."""
+    frames, midi = [], []
+    for line in text.splitlines():
+        if line.strip():
+            o = json.loads(line)
+            (frames if "pads" in o else midi).append(o)
+    return frames, midi
 
 
 class Scenario:
@@ -127,9 +137,10 @@ class Scenario:
             f.write(self.text())
         out = subprocess.run([exe, f.name, str(duration), str(fps)], capture_output=True, text=True, check=True)
         os.unlink(f.name)
-        return render.load_frames(out.stdout)
+        return load_frames(out.stdout)
 
     def make(self, sketch, out, duration=None, fps=25, at=None, scale=1.0):
+        import render                                  # PIL is only needed for drawing
         frames, midi = self.run(sketch, duration, fps)
         render.render(frames, self, out, at=at, scale=scale, board=self.board)
         return frames, midi
