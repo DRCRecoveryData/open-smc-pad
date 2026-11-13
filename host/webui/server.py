@@ -32,6 +32,7 @@ import settings as smcpad_settings  # noqa: E402
 
 MAX_UPLOAD = 512 * 1024
 STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "index.html")
+STATIC_JS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "smcpad.js")
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 BUILD_DIR = os.path.join(device.ROOT, "work", "webui", "build", "MidiFighterSpectra")
 LOCKFILE = os.path.join(device.ROOT, "work", "webui", "server.lock")
@@ -571,6 +572,17 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
+        if path == "/smcpad.js":
+            try:
+                body = open(STATIC_JS, "rb").read()
+            except OSError:
+                return self.send_error_json(500, "smcpad.js is missing")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/javascript; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if path == "/api/status":
             return self.send_json(200, status_payload())
         if path == "/api/files":
@@ -581,7 +593,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/lights":
             return self.send_json(200, {"lights": lights.snapshot(),
                                         "base_ch": smcpad_settings.load()["base_ch"]})
-        m = re.fullmatch(r"/static/([A-Za-z0-9._-]+\.(?:png|jpg|jpeg|svg|webp))", path)
+        m = re.fullmatch(r"/static/([A-Za-z0-9._-]+\.(?:png|jpg|jpeg|svg|webp|js))", path)
         if m:
             fpath = os.path.join(STATIC_DIR, m.group(1))
             if not os.path.isfile(fpath):

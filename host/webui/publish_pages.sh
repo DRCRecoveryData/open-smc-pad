@@ -21,9 +21,11 @@ if ! git clone -q --depth 1 "https://github.com/$REPO.git" "$TMP/site" 2>/dev/nu
     git -C "$TMP/site" remote add origin "https://github.com/$REPO.git"
 fi
 
-cp "$ROOT/host/webui/index.html" "$TMP/site/"
+cp "$ROOT/host/webui/index.html" "$ROOT/host/webui/smcpad.js" "$TMP/site/"
 mkdir -p "$TMP/site/static"
 cp "$ROOT/host/webui/static/"*.png "$TMP/site/static/"
+mkdir -p "$TMP/site/.github/workflows"
+cp "$ROOT/host/webui/pages-workflow.yml" "$TMP/site/.github/workflows/pages.yml"
 touch "$TMP/site/.nojekyll"
 
 cd "$TMP/site"

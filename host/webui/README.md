@@ -1,65 +1,81 @@
 # SMC-PAD Pocket web UI
 
-A local page to back up, restore and flash the pad, drive its LEDs live, and rebuild the
-Spectra firmware with your settings.
+A page to back up, restore and flash the pad, drive its LEDs live, and produce
+Spectra-firmware builds from your settings.
 
-    python3 host/webui/server.py            # http://127.0.0.1:8765/
-    python3 host/webui/server.py --offline  # UI only, no device access
+It runs entirely in the browser — nothing needs to be installed or running on the computer
+except Chrome:
 
-The same page is also published on GitHub Pages at
-<https://drcrecoverydata.github.io/smcpad-webui/> (the source repo is private, so the static
-copy lives in the public `DRCRecoveryData/smcpad-webui`; `host/webui/publish_pages.sh` updates
-it). Pages cannot reach the pad, so from there the Status tab shows a **Local server** address
-field and every request goes to `http://127.0.0.1:8765` — run the server above on the machine
-with the pad and the GitHub copy controls it just like the local one. The browser asks once
-for permission to reach the local network (Firefox: Local Network Access); allow it, then
-click Connect. The server echoes CORS headers only for the Pages origin (override with
-`SMCPAD_WEBUI_ORIGINS=https://user.github.io`) and for itself, answers preflights including
-Private Network Access, and still binds 127.0.0.1 only.
+<https://drcrecoverydata.github.io/smcpad-webui/>
 
-It talks to `1209:0002` with `dfu-util` and never writes sector 0:
+The source repo is private, so the published copy lives in the public
+`DRCRecoveryData/smcpad-webui`; `host/webui/publish_pages.sh` updates it, and a GitHub
+Actions workflow there rebuilds and deploys Pages on every push.
 
-- **Backup application** — DFU alt 0 read: the app area (directory + app.bin + cfg).
-  Restorable from the Restore tab.
-- **Backup full flash** — DFU alt 1 read, read-only, all 512 KiB. Archival only: a raw
-  restore needs the Pico ROM download flow (`host/flash_fw.sh stock` on macOS, or
-  `tools/jl-uboot-tool` on Linux).
-- **Restore / Upload** — DFU alt 0 write, transactional (the bootloader checks the image
-  and writes the directory last; an interrupted transfer leaves the pad in the bootloader).
-- **Lights** — live over raw MIDI to `hw:N,0,0`: per-pad palette colours, brightness/gate/
-  pulse animations, bank switching; the pad mockup follows the real taps the sketch sends.
-- **Settings** — every `SpectraConfig.h` option (channels, velocity, momentary CC, spark,
-  bank wave, sleep, side buttons and the per-bank Utility colours). Save stores them in
-  `work/webui/settings.json`; Save & flash rebuilds MidiFighterSpectra with `-D` overrides
-  (`host/build_sketch.sh` via `SMCPAD_DEFS`/`SMCPAD_OUT`) and flashes the result.
-- **Advanced: bootloader update** — DFU alt 2 with an explicit typed confirmation.
-- **Leave DFU** — boots the application again after a failed write.
+**Chrome, Edge or another Chromium browser is required.** The page uses WebUSB, Web Serial
+and Web MIDI to reach the pad; Firefox and Safari implement none of them and show a warning
+banner instead.
 
-Backups are written to `work/webui/backups/` (gitignored); uploads are validated on arrival
-and kept as `app_<timestamp>_uploaded.bin` after a successful flash. Settings-driven builds
-land in `work/webui/build/MidiFighterSpectra/` and are kept as
-`app_<timestamp>_settings.bin`, so `work/sketch/` is never overwritten.
+## Permissions
 
-The Lights tab writes plain MIDI to `/dev/snd/midiC*D0`; it needs read/write access to the
-ALSA node (the desktop's uaccess ACL usually provides it). The palette and note map are the
-Spectra guide's: colour velocity `1 + 6*index`, 0 clears, 121..127 forces the Utility colour.
+Chrome asks once per browser profile for each device:
 
-## Entering the bootloader
+- **Select serial port** — pick the SMC-PAD while it runs the app (`1209:0001`). The port is
+  used for the 1200-baud touch that reboots the pad into the bootloader.
+- **Select DFU device** — pick the SMC-PAD while it is in bootloader mode (`1209:0002`).
+  This grants access for all later writes and backups.
+- **MIDI** — grant the MIDI permission when the browser asks; it is needed for the Lights tab.
 
-From the running app the server uses the Arduino-style 1200-baud touch on the CDC port.
-That needs permission for `/dev/ttyACM0`; install the one-time rule:
+On Linux the desktop's uaccess ACL usually covers the pads; if Chrome cannot open the device,
+install the one-time udev rules and power-cycle the pad:
 
     sudo host/install-udev.sh
 
-Then power-cycle the pad once. If the pad is already in DFU (SHIFT LED blinking on the
-full-size board; DFU in `lsusb`), no touch is needed.
+## What each tab does
+
+It talks to `1209:0002` through standard DFU 1.1 and never writes sector 0:
+
+- **Backup** — DFU alt 0 read: the app area (directory + app.bin + cfg), saved as
+  `app_<timestamp>.bin` in Downloads, or DFU alt 1 read, read-only, all 512 KiB, saved as
+  `flash_<timestamp>.bin`. The page shows the SHA-256 of each download. The full dump is
+  archival only: a raw restore needs the Pico ROM download flow (`host/flash_fw.sh stock` on
+  macOS, or `tools/jl-uboot-tool` on Linux).
+- **Restore / Upload** — DFU alt 0 write, transactional (the bootloader checks the image and
+  writes the directory last; an interrupted transfer leaves the pad in the bootloader, which
+  this page can flash again). The file is validated in the page before any USB traffic: a
+  `.fwsc`, a full-flash dump, a bad directory CRC, a wrong entry (`0x1E08120`), an out-of-range
+  size or an app-area CRC mismatch is refused.
+- **Lights** — live over Web MIDI (no SysEx): per-pad palette colours, brightness/gate/pulse
+  animations, bank switching; the pad mockup follows the real taps the sketch sends. The
+  palette is the Spectra guide's: colour velocity `1 + 6*index`, 0 clears, 121..127 forces the
+  Utility colour.
+- **Settings** — every `SpectraConfig.h` option (channels, velocity, momentary CC, spark, bank
+  wave, sleep, side buttons and the per-bank Utility colours). Save keeps them in this
+  browser's `localStorage`; "Copy settings JSON" hands them to the firmware build below.
+- **Advanced** — bootloader update through DFU alt 2 with an explicit typed confirmation, and
+  **Leave DFU** to boot the application after a failed write.
+- **Status** — mode (APP / DFU), MIDI and serial ports, bootloader version, and the buttons
+  that grant device access.
+
+## Firmware builds
+
+Settings are compile-time `-DSPECTRA_*` defines, so firmware cannot be compiled in a browser.
+The Settings tab links to the `firmware.yml` workflow in the private repo: run it with the
+copied settings JSON in `settings_json`, let GitHub Actions build with the JieLi toolchain,
+download `MidiFighterSpectra.bin` from the finished run, and flash it on the Upload tab.
+Backups and settings JSON stay in the browser and Downloads unless you paste them into the
+workflow yourself.
 
 ## Safety
 
-- Only `1209:0001` (app), `1209:0002` (bootloader) and `4353:4b4d` (stock) are recognised;
-  anything else is left alone. `.fwsc` containers and >512 KiB files are refused.
-- App images are checked before any write: directory head CRC, entry `0x1E08120`, size
-  range and the app-area CRC.
-- One operation at a time; the page binds to 127.0.0.1 and rejects POSTs from any origin
-  other than itself and the Pages copy.
-- Tests: `python3 host/tests/test_webui.py` (offline).
+- Only `1209:0001` (app) and `1209:0002` (bootloader) are recognised; device choosers are
+  filtered to those ids. `.fwsc` containers and files of 512 KiB or more are refused before
+  any write.
+- Only the DFU alt the operation needs is written: alt 0 for app restores, alt 2 for a
+  bootloader update, alt 1 never.
+- One operation at a time; reads can be cancelled, writes run to completion or leave the pad
+  in the bootloader.
+- No server is involved: the page is plain static files from GitHub Pages. The optional
+  `python3 host/webui/server.py` remains for offline use and scripting, and serves the same
+  page at <http://127.0.0.1:8765/>.
+- Tests: `python3 host/tests/test_webui.py` and `node --test host/tests/test_smcpad_js.mjs`.

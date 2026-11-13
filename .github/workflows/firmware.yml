@@ -1,0 +1,70 @@
+# Build MidiFighterSpectra with settings from the web UI.
+#
+# The web UI's Settings tab cannot compile firmware, so it copies a settings JSON here:
+# run this workflow with that JSON in settings_json, then download the artifact
+# MidiFighterSpectra.bin and flash it from the page's Upload tab.  {} builds the defaults.
+name: Firmware
+
+on:
+  workflow_dispatch:
+    inputs:
+      settings_json:
+        description: 'Settings JSON from the web UI "Copy settings JSON" ({} = defaults)'
+        required: false
+        default: "{}"
+
+permissions:
+  contents: read
+
+env:
+  TOOLCHAIN_URL: https://jl-update.oss-cn-shenzhen.aliyuncs.com/jieli-linux-toolchains-20260730.1.tar.xz
+  TOOLCHAIN_SHA256: a1545cddbc451a06bac43eb5cd96d831470c42a97c5c0b1f98879a20fc7647bd
+  POSTBUILD_URL: https://jl-update.oss-cn-shenzhen.aliyuncs.com/jieli-linux-post-build-tools-20260923.1.tar.xz
+  POSTBUILD_SHA256: 6949d48c4cd82e274d7943d4ca67f214593fdb4f699ef9f51c2ecc78125ab739
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Submodules the build needs
+        run: git submodule update --init sdk/fw-AC63_BT_SDK third_party/tinyusb third_party/ArduinoCore-API
+      - name: JieLi toolchain and post-build tools (from JieLi, checked)
+        run: |
+          mkdir -p tools/jl-toolchain tools/jl-postbuild
+          curl -sfL -o tc.tar.xz "$TOOLCHAIN_URL" && echo "$TOOLCHAIN_SHA256  tc.tar.xz" | sha256sum -c
+          curl -sfL -o pb.tar.xz "$POSTBUILD_URL" && echo "$POSTBUILD_SHA256  pb.tar.xz" | sha256sum -c
+          tar -xJf tc.tar.xz -C tools/jl-toolchain && tar -xJf pb.tar.xz -C tools/jl-postbuild
+      - name: Precompiled Arduino core (JieLi SDK, Docker)
+        run: SMCPAD_ARDUINO=1 SMCPAD_TINYUSB=1 TEXT_BASE=0x1E08120 fw/build.sh
+      - name: Install the core for host/build_sketch.sh
+        run: arduino/make_system.sh
+      - name: Settings JSON to SMCPAD_DEFS
+        env:
+          SETTINGS_JSON: ${{ inputs.settings_json }}
+        run: |
+          cd host/webui
+          DEFS="$(python3 -c 'import json, os, settings; print(" ".join(settings.defines(json.loads(os.environ["SETTINGS_JSON"] or "{}"))))')"
+          echo "defines: $DEFS"
+          echo "SMCPAD_DEFS=$DEFS" >> "$GITHUB_ENV"
+      - name: Build MidiFighterSpectra
+        run: SMCPAD_OUT=work/sketch/MidiFighterSpectra host/build_sketch.sh arduino/sketches/MidiFighterSpectra
+      - name: Validate the app area
+        run: |
+          python3 - <<'EOF'
+          import sys
+          sys.path.insert(0, "host/webui")
+          import device
+          path = "work/sketch/MidiFighterSpectra/MidiFighterSpectra.bin"
+          data = open(path, "rb").read()
+          ok, why = device.validate_app_area(data, path)
+          if not ok:
+              raise SystemExit("invalid app area: " + why)
+          print("%s: %d bytes, directory and CRCs OK" % (path, len(data)))
+          EOF
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MidiFighterSpectra
+          path: work/sketch/MidiFighterSpectra/MidiFighterSpectra.bin
+          if-no-files-found: error

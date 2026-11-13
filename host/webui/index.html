@@ -118,13 +118,16 @@
   .bankcolours td { padding: 6px 8px; }
   .bankcolours input[type=color] { vertical-align: middle; }
   .badfield { border-color: var(--bad) !important; }
+  .cap { display: flex; gap: 18px; flex-wrap: wrap; font: 12.5px var(--mono); }
+  .cap .no { color: var(--bad); }
+  .cap .yes { color: var(--good); }
 </style>
 </head>
 <body>
 <header>
   <h1>SMC-PAD Pocket</h1>
   <span id="chip" class="chip">…</span>
-  <div id="devline" class="muted">connecting…</div>
+  <div id="devline" class="muted">starting…</div>
   <button id="refresh" class="small">Refresh</button>
 </header>
 
@@ -140,17 +143,9 @@
 
 <main>
   <section id="tab-status" class="tab active">
-    <div class="card" id="server-card" hidden>
-      <h2>Local server</h2>
-      <div class="row">
-        <input id="server-url" class="mono" spellcheck="false" autocomplete="off"
-               style="flex:1;min-width:280px" aria-label="Local server address">
-        <button id="server-connect" class="small">Connect</button>
-      </div>
-      <p class="note">This copy is hosted on GitHub; the buttons only work while
-        <code>python3 host/webui/server.py</code> runs on the machine with the pad. Requests go
-        to the address above and nowhere else.</p>
-    </div>
+    <div class="warnbox" id="cap-warn" hidden>This page talks to the pad directly and needs
+      WebUSB, Web Serial and Web MIDI. Use Google Chrome, Microsoft Edge or another Chromium
+      browser — Firefox and Safari cannot reach the pad.</div>
     <div class="card"><img class="hero" src="static/hero.png" alt="SMC-PAD Pocket pad grid"></div>
     <div class="grid2">
       <div class="card">
@@ -163,21 +158,30 @@
           <tr><th>MIDI port</th><td id="d-midi" class="mono">—</td></tr>
           <tr><th>Bootloader</th><td id="d-boot" class="mono">—</td></tr>
         </table>
+        <div class="row" style="margin-top:12px">
+          <button class="small" id="pick-serial">Select serial port</button>
+          <button class="small" id="pick-dfu">Select DFU device</button>
+        </div>
       </div>
       <div class="card">
         <h2>Your pad</h2>
         <img class="shot" src="static/device.png" alt="SMC-PAD Pocket">
         <p class="note">16 RGB pads, one ring each. Lights tab drives them live; Settings
-          rebuilds the Spectra firmware with your options.</p>
+          produces the JSON for a firmware build on GitHub.</p>
       </div>
     </div>
     <div class="card">
-      <h2>Backups</h2>
-      <table id="backups">
-        <thead><tr><th>File</th><th>Kind</th><th>Size</th><th>Date</th><th>SHA-256</th>
-          <th></th><th></th></tr></thead>
-        <tbody><tr><td colspan="7" class="muted">none yet</td></tr></tbody>
-      </table>
+      <h2>How this page works</h2>
+      <div class="cap">
+        <span id="cap-usb">WebUSB —</span>
+        <span id="cap-serial">Web Serial —</span>
+        <span id="cap-midi">Web MIDI —</span>
+      </div>
+      <p class="note" style="margin-top:10px">The page talks to the pad itself: lights over
+        MIDI, backups and flashing over the USB DFU bootloader, the 1200-baud reset over the
+        serial port. Nothing runs on this computer except the browser. Chrome asks once per
+        browser profile for each device — select the serial port while the pad runs the app,
+        and the DFU device while it is in bootloader mode.</p>
     </div>
   </section>
 
@@ -237,14 +241,14 @@
   <section id="tab-settings" class="tab">
     <div class="card">
       <h2>Spectra settings</h2>
-      <p class="note">Every option is compile-time in the sketch, so applying them rebuilds
-        MidiFighterSpectra locally with the new values and flashes it over DFU alt 0.
-        Save alone keeps them for the next apply.</p>
+      <p class="note">Every option is compile-time in the sketch. Save keeps them in this
+        browser; the build card below turns them into firmware through GitHub Actions. The
+        pad's lights use the base channel saved here immediately.</p>
       <div class="sgrid" id="settings-form"></div>
       <div class="row" style="margin-top:14px">
         <button id="settings-save">Save settings</button>
-        <button class="danger" id="settings-apply">Save &amp; flash…</button>
         <button id="settings-reset">Reset to defaults</button>
+        <button id="settings-copy">Copy settings JSON</button>
         <span class="note" id="settings-note"></span>
       </div>
     </div>
@@ -257,20 +261,33 @@
       <p class="note">The Utility colours: shown while a trigger is held, and while it is
         released. MIDI colour control still overrides both.</p>
     </div>
+    <div class="card">
+      <h2>Build firmware (GitHub Actions)</h2>
+      <p class="note">Firmware cannot be compiled in a browser. Copy the settings JSON, open
+        the workflow, run it with the JSON pasted into <span class="mono">settings_json</span>,
+        then download <span class="mono">MidiFighterSpectra.bin</span> from the finished run
+        and flash it on the Upload tab.</p>
+      <div class="row">
+        <button id="build-open" class="primary">Open build workflow</button>
+        <button id="settings-copy2">Copy settings JSON</button>
+      </div>
+      <p class="note" id="build-note"></p>
+    </div>
   </section>
 
   <section id="tab-backup" class="tab">
     <div class="grid2">
       <div class="card">
         <h2>Application backup</h2>
-        <p class="note">Reads the running application area over DFU (alt 0). The file can be
-          flashed back from the Restore tab.</p>
+        <p class="note">Reads the running application area over DFU (alt 0) and saves it in
+          your Downloads folder. Flash it back from the Restore tab.</p>
         <button class="primary" data-op="backup_app">Backup application</button>
       </div>
       <div class="card">
         <h2>Full flash backup</h2>
-        <p class="note">Reads all 512 KiB raw over DFU (alt 1, read-only). For archival:
-          restoring a raw dump needs the Pico ROM flow and is not offered here.</p>
+        <p class="note">Reads all 512 KiB raw over DFU (alt 1, read-only) and saves it in
+          your Downloads folder. For archival: restoring a raw dump needs the Pico ROM flow
+          and is not offered here.</p>
         <button class="primary" data-op="backup_full">Backup full flash</button>
       </div>
     </div>
@@ -279,23 +296,18 @@
   <section id="tab-restore" class="tab">
     <div class="card">
       <h2>Restore an application backup</h2>
-      <p class="note">Flashes the selected application backup over DFU (alt 0). The bootloader
-        checks the image and writes its directory last, so an interrupted restore leaves the
-        pad in the bootloader instead of half-flashed.</p>
+      <p class="note">Flashes an app-area <span class="mono">.bin</span> over DFU alt 0 —
+        a backup you downloaded here, or a firmware build from GitHub Actions. The file is
+        validated in the page before any USB traffic, and the bootloader checks it again and
+        writes its directory last, so an interrupted restore leaves the pad in the bootloader
+        instead of half-flashed.</p>
       <div class="row">
-        <select id="restore-select" style="min-width:320px"></select>
-        <button class="danger" id="restore-btn">Restore…</button>
+        <input type="file" id="restore-file" accept=".bin">
+        <button class="danger" id="restore-btn" disabled>Restore…</button>
       </div>
-      <p class="note" id="restore-note"></p>
-    </div>
-    <div class="card">
-      <h2>Full-flash dumps</h2>
-      <table id="flash-dumps">
-        <thead><tr><th>File</th><th>Size</th><th>Date</th><th></th></tr></thead>
-        <tbody><tr><td colspan="4" class="muted">none yet</td></tr></tbody>
-      </table>
-      <p class="note">These are read-only archives. Restoring one requires the Pico ROM
-        download flow (<span class="mono">host/flash_fw.sh stock</span> on macOS, or
+      <p class="note" id="restore-info"></p>
+      <p class="note">Full-flash dumps are read-only archives: restoring one requires the
+        Pico ROM download flow (<span class="mono">host/flash_fw.sh stock</span> on macOS, or
         <span class="mono">tools/jl-uboot-tool</span> on Linux).</p>
     </div>
   </section>
@@ -304,8 +316,8 @@
     <div class="card">
       <h2>Upload application firmware</h2>
       <p class="note">Pick a built app-area <span class="mono">.bin</span> (a directory +
-        app.bin + cfg_tool.bin, e.g. <span class="mono">work/sketch/…/MidiFighterSpectra.bin</span>).
-        The file is checked on arrival and again before flashing.</p>
+        app.bin + cfg_tool.bin, e.g. <span class="mono">MidiFighterSpectra.bin</span> from the
+        Actions build). The file is validated before flashing.</p>
       <div class="row">
         <input type="file" id="file" accept=".bin">
         <button class="danger" id="upload-btn" disabled>Upload &amp; flash…</button>
@@ -322,12 +334,8 @@
         system. Keep the USB cable connected.</div>
       <p></p>
       <div class="row">
-        <select id="boot-source" style="min-width:420px"></select>
-        <button class="danger" id="boot-btn">Update bootloader…</button>
-      </div>
-      <div class="row" style="margin-top:10px">
         <input type="file" id="boot-file" accept=".bin">
-        <span class="note" id="boot-file-info">or upload a bootloader update package</span>
+        <button class="danger" id="boot-btn" disabled>Update bootloader…</button>
       </div>
       <p class="note" id="boot-info"></p>
     </div>
@@ -362,193 +370,142 @@
   </div>
 </dialog>
 
+<script src="smcpad.js"></script>
 <script>
 "use strict";
+const S = window.SMCPAD;
 const $ = (s) => document.querySelector(s);
-let API_BASE = "";
-const apiUrl = (path) => API_BASE + path;
-let status = null, files = { backups: [], artifacts: {} };
-let jobId = null, jobSince = 0, jobTimer = null, idleTimer = null, lightsTimer = null;
-let appUploadId = null, bootUploadId = null;
-let lightState = null, lightBrush = { action: "color", velocity: 67, label: "cyan (velocity 67)" };
-let lastColourVelocity = 67;
-let settingsPayload = null, settingsValues = null;
+const $$ = (s) => Array.from(document.querySelectorAll(s));
 
-const MODE_TEXT = { app: "APP", dfu: "DFU BOOTLOADER", stock: "STOCK FW", absent: "ABSENT",
-                    mixed: "MULTIPLE PADS", offline: "OFFLINE", busy: "BUSY" };
+const CAP = {
+  usb: !!(navigator.usb && navigator.usb.requestDevice),
+  serial: !!(navigator.serial && navigator.serial.requestPort),
+  midi: !!navigator.requestMIDIAccess,
+};
+
+let midiAccess = null, midiOut = null, midiIn = null, midiError = null;
+let serialPort = null, dfuDevice = null;
+let busy = false, opKind = null, cancelRequested = false;
+let pendingRestore = null, pendingUpload = null, pendingBoot = null;
+let settingsValues = loadSettings();
+let lightState = { bank: 0, colors: Array(16).fill(null), force: Array(16).fill(false),
+                   velocities: Array(16).fill(0), anims: Array(16).fill(0),
+                   pressed: Array(16).fill(false) };
+let lightBrush = { action: "color", velocity: 67, label: "cyan (velocity 67)" };
+let lastColourVelocity = 67;
+
+const MODE_TEXT = { app: "APP", dfu: "DFU BOOTLOADER", absent: "NO PAD" };
 const GATE_CYCLES = [16, 8, 4, 2, 1, 0.5, 0.25, 0.125];
 const PULSE_CYCLES = [32, 16, 8, 4, 2, 1, 0.5, 0.125];
-
-async function api(path, opts = {}) {
-  const r = await fetch(apiUrl(path), opts);
-  let body = null;
-  try { body = await r.json(); } catch (e) { body = null; }
-  if (!r.ok) {
-    let msg = (body && (body.error || body.reason)) || `HTTP ${r.status}`;
-    if (body && body.fields) msg += ": " + Object.values(body.fields).join("; ");
-    throw new Error(msg);
-  }
-  return body;
-}
+const BUILD_URL = "https://github.com/DRCRecoveryData/open-smc-pad/actions/workflows/firmware.yml";
+const SETTINGS_KEY = "smcpad-settings";
 
 function fmtSize(n) {
   return n >= 1024 * 1024 ? (n / 1048576).toFixed(1) + " MiB"
        : n >= 1024 ? (n / 1024).toFixed(1) + " KiB" : n + " B";
 }
-function fmtDate(t) { return new Date(t * 1000).toLocaleString(); }
 function hex(rgb) { return "#" + (rgb & 0xFFFFFF).toString(16).padStart(6, "0"); }
-
-function setBusy(busy) {
-  document.querySelectorAll("button[data-op]").forEach(b => b.disabled = busy);
-  document.querySelectorAll("#tab-lights button").forEach(b => b.disabled = busy);
-  $("#restore-btn").disabled = busy;
-  $("#upload-btn").disabled = busy || !appUploadId;
-  $("#boot-btn").disabled = busy || !$("#boot-source").value;
-  $("#detach-btn").disabled = busy;
-  $("#settings-save").disabled = busy;
-  $("#settings-apply").disabled = busy;
+function stamp() {
+  const d = new Date(), p = (n) => String(n).padStart(2, "0");
+  return d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + "-" +
+         p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds());
 }
 
-function renderStatus(s) {
-  status = s;
-  const d = s.device, mode = d.mode;
-  const chip = $("#chip");
-  chip.textContent = MODE_TEXT[mode] || mode.toUpperCase();
-  chip.className = "chip " + (s.busy ? "busy" : mode);
-  $("#d-mode").textContent = mode + (s.busy ? " (operation running)" : "");
-  $("#d-id").textContent = d.id || "—";
-  $("#d-product").textContent = d.product || "—";
-  const portOk = d.port && d.port_ok;
-  $("#d-port").innerHTML = "";
-  const dot = document.createElement("span");
-  dot.className = "dot" + (portOk ? " ok" : "");
-  $("#d-port").append(dot, document.createTextNode(d.port || "—"));
-  $("#d-midi").textContent = d.midi || "—";
-  $("#d-boot").textContent = d.boot_version || "—";
-  $("#devline").textContent = s.server.offline ? "server started with --offline"
-    : (d.product ? d.product + (d.serial ? "  ·  sn " + d.serial : "") : "no SMC-PAD on USB");
-  setBusy(s.busy);
+function loadSettings() {
+  let stored = {};
+  try { stored = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}"); } catch (e) {}
+  return S.validateSettings(stored).values;
 }
 
-function renderFiles(f) {
-  files = f;
-  const bks = f.backups || [];
-  const tb = $("#backups tbody");
-  tb.innerHTML = "";
-  if (!bks.length) {
-    const tr = document.createElement("tr");
-    const td = document.createElement("td");
-    td.colSpan = 7; td.className = "muted"; td.textContent = "none yet";
-    tr.append(td); tb.append(tr);
-  }
-  for (const b of bks) {
-    const tr = document.createElement("tr");
-    for (const [text, cls] of [[b.name, "mono"], [b.kind, ""], [fmtSize(b.bytes), "mono"],
-                               [fmtDate(b.mtime), ""], [b.sha256.slice(0, 16) + "…", "mono"]]) {
-      const td = document.createElement("td");
-      td.textContent = text; if (cls) td.className = cls;
-      tr.append(td);
-    }
-    const dl = document.createElement("td");
-    const a = document.createElement("a");
-    a.href = apiUrl("/api/files/download?name=") + encodeURIComponent(b.name);
-    const btn = document.createElement("button");
-    btn.className = "small"; btn.textContent = "Download";
-    a.append(btn); dl.append(a); tr.append(dl);
-    const rs = document.createElement("td");
-    if (b.kind === "app") {
-      const rbtn = document.createElement("button");
-      rbtn.className = "small"; rbtn.textContent = "Restore…";
-      rbtn.onclick = () => askRestore(b.name);
-      rs.append(rbtn);
-    }
-    tr.append(rs);
-    tb.append(tr);
-  }
+/* ---------------------------------------------------------------- status */
 
-  const sel = $("#restore-select");
-  sel.innerHTML = "";
-  const apps = bks.filter(b => b.kind === "app");
-  if (!apps.length) {
-    const o = document.createElement("option");
-    o.textContent = "no application backups"; o.value = ""; sel.append(o);
-    $("#restore-btn").disabled = true;
-  } else {
-    for (const b of apps) {
-      const o = document.createElement("option");
-      o.value = b.name; o.textContent = `${b.name}  (${fmtSize(b.bytes)}, ${fmtDate(b.mtime)})`;
-      sel.append(o);
-    }
-    $("#restore-btn").disabled = status ? status.busy : false;
-  }
+function capLine(el, ok, name) {
+  el.textContent = name + (ok ? " ✓" : " ✗");
+  el.className = ok ? "yes" : "no";
+}
 
-  const fts = $("#flash-dumps tbody");
-  fts.innerHTML = "";
-  const flashes = bks.filter(b => b.kind === "flash");
-  if (!flashes.length) {
-    const tr = document.createElement("tr");
-    const td = document.createElement("td");
-    td.colSpan = 4; td.className = "muted"; td.textContent = "none yet";
-    tr.append(td); fts.append(tr);
+function refreshMidi() {
+  if (!midiAccess) return;
+  const match = (p) => /SMC-PAD/i.test((p.name || "") + " " + (p.manufacturer || ""));
+  const outs = Array.from(midiAccess.outputs.values()).filter(match);
+  const ins = Array.from(midiAccess.inputs.values()).filter(match);
+  midiOut = outs.includes(midiOut) ? midiOut : (outs[0] || null);
+  const nextIn = ins[0] || null;
+  if (nextIn !== midiIn) {
+    if (midiIn) midiIn.onmidimessage = null;
+    midiIn = nextIn;
+    if (midiIn) midiIn.onmidimessage = onMidiMessage;
   }
-  for (const b of flashes) {
-    const tr = document.createElement("tr");
-    for (const [text, cls] of [[b.name, "mono"], [fmtSize(b.bytes), "mono"],
-                               [fmtDate(b.mtime), ""]]) {
-      const td = document.createElement("td");
-      td.textContent = text; if (cls) td.className = cls;
-      tr.append(td);
-    }
-    const dl = document.createElement("td");
-    const a = document.createElement("a");
-    a.href = apiUrl("/api/files/download?name=") + encodeURIComponent(b.name);
-    const btn = document.createElement("button");
-    btn.className = "small"; btn.textContent = "Download";
-    a.append(btn); dl.append(a); tr.append(dl);
-    fts.append(tr);
-  }
+  $("#lights-node").textContent = midiOut
+    ? "MIDI: " + (midiOut.name || "SMC-PAD") + " · " + midiOut.state
+    : (midiError ? "MIDI unavailable: " + midiError
+                 : "no SMC-PAD MIDI port (switch the pad to APP)");
+}
 
-  const boot = (f.artifacts || {}).boot_update || {};
-  const bsel = $("#boot-source");
-  const prev = bsel.value;
-  bsel.innerHTML = "";
-  if (boot.ok) {
-    const o = document.createElement("option");
-    o.value = "builtin";
-    o.textContent = `work/flash/boot_update.bin (${fmtSize(boot.bytes)}, ${fmtDate(boot.mtime)})`;
-    bsel.append(o);
-  }
-  if (bootUploadId) {
-    const o = document.createElement("option");
-    o.value = "upload:" + bootUploadId;
-    o.textContent = "uploaded package " + bootUploadId;
-    bsel.append(o);
-    bsel.value = o.value;
-  }
-  if (prev && [...bsel.options].some(o => o.value === prev)) bsel.value = prev;
-  $("#boot-btn").disabled = !bsel.value || (status ? status.busy : false);
-  const fresh = f.artifacts.boot_source_mtime && boot.mtime &&
-                f.artifacts.boot_source_mtime > boot.mtime;
-  $("#boot-info").textContent = fresh
-    ? "note: fw/boot/out/boot.bin is newer than the package — rebuild with host/package_fw.sh boot"
-    : (boot.ok ? "the bootloader reports its version in DFU; the update is a no-op if unchanged"
-               : "no built bootloader package found");
+async function initMidi() {
+  if (!CAP.midi) return;
+  try {
+    midiAccess = await navigator.requestMIDIAccess({ sysex: false });
+    midiAccess.onstatechange = () => { refreshMidi(); refreshStatus(); };
+  } catch (e) { midiError = e.message; }
+  refreshMidi();
 }
 
 async function refreshStatus() {
-  try { renderStatus(await api("/api/status")); }
-  catch (e) { $("#chip").textContent = "SERVER DOWN"; $("#chip").className = "chip absent"; }
+  $("#cap-warn").hidden = CAP.usb && CAP.serial && CAP.midi;
+  capLine($("#cap-usb"), CAP.usb, "WebUSB");
+  capLine($("#cap-serial"), CAP.serial, "Web Serial");
+  capLine($("#cap-midi"), CAP.midi, "Web MIDI");
+
+  const ports = CAP.serial ? await navigator.serial.getPorts().catch(() => []) : [];
+  serialPort = ports.find((p) => {
+    const i = p.getInfo();
+    return i.usbVendorId === S.APP_VID && i.usbProductId === S.APP_PID;
+  }) || null;
+  const usbs = CAP.usb ? await navigator.usb.getDevices().catch(() => []) : [];
+  dfuDevice = usbs.find(S.isDfuDevice) || null;
+  refreshMidi();
+
+  const mode = dfuDevice ? "dfu" : (midiOut ? "app" : "absent");
+  $("#chip").textContent = MODE_TEXT[mode];
+  $("#chip").className = "chip " + (busy ? "busy" : mode);
+  $("#d-mode").textContent = (busy ? "operation running" : mode);
+  $("#d-id").textContent = mode === "dfu" ? "1209:0002" : mode === "app" ? "1209:0001" : "—";
+  $("#d-product").textContent = mode === "dfu"
+    ? (dfuDevice.productName || "SMC-PAD bootloader")
+    : (midiOut ? (midiOut.name || "MVC SMC-PAD") : "—");
+
+  const portEl = $("#d-port");
+  portEl.textContent = "";
+  const dot = document.createElement("span");
+  dot.className = "dot" + (serialPort ? " ok" : "");
+  portEl.append(dot, document.createTextNode(serialPort ? "granted (1209:0001)" : "not selected"));
+  $("#d-midi").textContent = midiOut ? (midiOut.name || "SMC-PAD MIDI") : "—";
+  if (!dfuDevice) $("#d-boot").textContent = "—";
+
+  $("#devline").textContent = mode === "dfu"
+    ? "SMC-PAD bootloader — writes and backups are available"
+    : mode === "app"
+      ? "SMC-PAD app running — lights available"
+      : (serialPort ? "no pad detected — plug it in and refresh"
+                    : "no pad detected — plug it in, or use Select serial port");
+
+  updateButtons();
 }
 
-async function refreshFiles() {
-  try { renderFiles(await api("/api/files")); } catch (e) { /* keep the old table */ }
-}
-
-function scheduleIdle() {
-  clearInterval(idleTimer);
-  idleTimer = setInterval(async () => {
-    await refreshStatus(); await refreshFiles();
-  }, 2000);
+async function readBootVersion() {
+  if (!dfuDevice || busy) return;
+  const dfu = new S.Dfu(dfuDevice);
+  try {
+    await dfu.open();
+    await dfu.selectAlt(2);
+    const v = await dfu.upload(2, 128);
+    $("#d-boot").textContent = new TextDecoder().decode(v).replace(/\s+$/, "") || "—";
+  } catch (e) {
+    $("#d-boot").textContent = "unreadable";
+  } finally {
+    await dfu.close();
+  }
 }
 
 /* ---------------------------------------------------------------- lights */
@@ -573,36 +530,29 @@ function buildPadGrid() {
 }
 
 function activeHex() {
-  const bank = lightState ? lightState.bank : 0;
-  const v = settingsValues || {};
-  return hex(v["active_b" + bank] != null ? v["active_b" + bank] : 0xFFFFFF);
+  const bank = lightState.bank;
+  return hex(settingsValues["active_b" + bank] != null ? settingsValues["active_b" + bank] : 0xFFFFFF);
 }
 function inactiveHex() {
-  const bank = lightState ? lightState.bank : 0;
-  const v = settingsValues || {};
-  return hex(v["inactive_b" + bank] != null ? v["inactive_b" + bank] : 0x000000);
+  const bank = lightState.bank;
+  return hex(settingsValues["inactive_b" + bank] != null ? settingsValues["inactive_b" + bank] : 0x000000);
 }
 
-function renderLights(l) {
-  lightState = l;
-  $("#lights-node").textContent = l.node
-    ? l.node + (l.midi_ok ? "  ·  input ok" : "  ·  input unavailable")
-    : "no SMC-PAD MIDI port (switch the pad to APP)";
-  $("#lights-bank").textContent = "bank " + (l.bank + 1);
-  if (l.error) $("#lights-err").textContent = l.error;
+function renderLights() {
+  $("#lights-bank").textContent = "bank " + (lightState.bank + 1);
   for (let p = 0; p < 16; p++) {
     const el = pads[p];
     if (!el) continue;
     let color;
-    if (l.colors[p]) color = "#" + l.colors[p];
-    else if (l.force[p]) color = "#ffffff";
-    else color = l.pressed[p] ? activeHex() : inactiveHex();
+    if (lightState.colors[p] != null) color = "#" + lightState.colors[p].toString(16).padStart(6, "0");
+    else if (lightState.force[p]) color = "#ffffff";
+    else color = lightState.pressed[p] ? activeHex() : inactiveHex();
     el.style.background = color;
     el.style.boxShadow = (color !== "#000000") ? "0 0 14px " + color : "none";
     el.style.filter = "";
     el.style.animation = "";
-    el.classList.toggle("tap", !!l.pressed[p]);
-    const v = l.anims[p] || 0;
+    el.classList.toggle("tap", !!lightState.pressed[p] && (lightState.colors[p] != null || lightState.force[p]));
+    const v = lightState.anims[p] || 0;
     if (v >= 42) {
       const period = Math.max(0.3, Math.min(4, 0.5 / PULSE_CYCLES[v - 42]));
       el.style.animation = `pulse ${period}s ease-in-out infinite`;
@@ -613,25 +563,33 @@ function renderLights(l) {
       el.style.filter = `brightness(${(0.2 + 0.8 * (v - 18) / 15).toFixed(2)})`;
     }
   }
-  document.querySelectorAll("button[data-bank]").forEach(b =>
-    b.classList.toggle("on", Number(b.dataset.bank) === l.bank));
+  $$("button[data-bank]").forEach(b =>
+    b.classList.toggle("on", Number(b.dataset.bank) === lightState.bank));
 }
 
-async function loadLights() {
-  try { const r = await api("/api/lights"); renderLights(r.lights); }
-  catch (e) { $("#lights-err").textContent = e.message; }
+function onMidiMessage(ev) {
+  const hit = S.tapFromMessage(ev.data, settingsValues.base_ch, lightState.bank);
+  if (!hit) return;
+  lightState.pressed[hit.pad] = hit.down;
+  renderLights();
 }
 
-async function lightsPost(action, padList, velocity) {
-  if (status && status.busy) { $("#lights-err").textContent = "an operation is running"; return; }
+function lightsSend(action, padList, velocity) {
+  if (!midiOut) { $("#lights-err").textContent = "no SMC-PAD MIDI output (switch the pad to APP)"; return; }
+  let msgs;
   try {
-    const r = await api("/api/lights", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action, pads: padList, velocity })
-    });
-    renderLights(r.lights);
-    $("#lights-err").textContent = "";
-  } catch (e) { $("#lights-err").textContent = e.message; }
+    msgs = S.buildLights(action, settingsValues.base_ch, lightState.bank, padList, velocity);
+    msgs.forEach((m) => midiOut.send(m));
+  } catch (e) { $("#lights-err").textContent = e.message; return; }
+  if (action === "bank") lightState.bank = velocity;
+  else if (action === "anim") padList.forEach((p) => { lightState.anims[p] = velocity; });
+  else padList.forEach((p) => {
+    lightState.velocities[p] = action === "force" ? 127 : velocity;
+    lightState.colors[p] = action === "force" ? null : S.rgbForVelocity(velocity);
+    lightState.force[p] = action === "force";
+  });
+  $("#lights-err").textContent = "";
+  renderLights();
 }
 
 function setBrush(action, velocity, label) {
@@ -648,8 +606,9 @@ function buildPalette(palette) {
     b.className = "sw" + (entry.name.includes("dim") ? " dim" : "");
     b.style.background = hex(entry.rgb);
     b.title = `${entry.name} · velocity ${entry.velocity}`;
+    if (entry.velocity === 67) b.classList.add("on");
     b.onclick = () => {
-      box.querySelectorAll(".sw").forEach(x => x.classList.remove("on"));
+      box.querySelectorAll(".sw").forEach((x) => x.classList.remove("on"));
       b.classList.add("on");
       setBrush("color", entry.velocity, `${entry.name} (velocity ${entry.velocity})`);
     };
@@ -659,9 +618,9 @@ function buildPalette(palette) {
 
 function padClick(p) {
   if (lightBrush.action === "color" || lightBrush.action === "force")
-    lightsPost(lightBrush.action, [p], lightBrush.action === "force" ? 0 : lightBrush.velocity);
+    lightsSend(lightBrush.action, [p], lightBrush.action === "force" ? 0 : lightBrush.velocity);
   else if (lightBrush.action === "anim")
-    lightsPost("anim", [p], lightBrush.velocity);
+    lightsSend("anim", [p], lightBrush.velocity);
 }
 
 function animVelocity() {
@@ -692,7 +651,7 @@ function fillAnimLevels() {
 function buildSettingsForm() {
   const form = $("#settings-form");
   form.innerHTML = "";
-  for (const f of settingsPayload.fields) {
+  for (const f of S.FIELDS) {
     if (f.type === "color") continue;
     const wrap = document.createElement("div");
     wrap.className = "field";
@@ -707,12 +666,12 @@ function buildSettingsForm() {
     if (f.type === "bool") {
       input = document.createElement("input");
       input.type = "checkbox";
-      input.checked = !!settingsPayload.values[f.key];
+      input.checked = !!settingsValues[f.key];
     } else {
       input = document.createElement("input");
       input.type = "number";
       input.min = f.min; input.max = f.max; input.step = "1";
-      input.value = settingsPayload.values[f.key];
+      input.value = settingsValues[f.key];
     }
     input.id = "set-" + f.key;
     wrap.append(input);
@@ -721,7 +680,7 @@ function buildSettingsForm() {
 
   const tb = $("#settings-colours tbody");
   tb.innerHTML = "";
-  for (let b = 0; b < settingsPayload.banks; b++) {
+  for (let b = 0; b < S.BANKS; b++) {
     const tr = document.createElement("tr");
     const th = document.createElement("th");
     th.textContent = "Bank " + (b + 1);
@@ -732,7 +691,7 @@ function buildSettingsForm() {
       const input = document.createElement("input");
       input.type = "color";
       input.id = "set-" + key;
-      input.value = hex(settingsPayload.values[key]);
+      input.value = hex(settingsValues[key]);
       td.append(input);
       tr.append(td);
     }
@@ -742,7 +701,7 @@ function buildSettingsForm() {
 
 function readSettingsForm() {
   const values = {};
-  for (const f of settingsPayload.fields) {
+  for (const f of S.FIELDS) {
     const input = document.getElementById("set-" + f.key);
     if (!input) continue;
     if (f.type === "bool") values[f.key] = input.checked;
@@ -752,112 +711,36 @@ function readSettingsForm() {
   return values;
 }
 
-async function refreshSettings() {
-  try {
-    settingsPayload = await api("/api/settings");
-    settingsValues = settingsPayload.values;
-    buildSettingsForm();
-    $("#settings-note").textContent = "loaded; bank colours above apply after a flash";
-    $("#settings-note").className = "note";
-  } catch (e) {
-    $("#settings-note").textContent = e.message;
+function saveSettings() {
+  const v = S.validateSettings(readSettingsForm());
+  const keys = Object.keys(v.errors);
+  if (keys.length) {
+    $("#settings-note").textContent = keys.map((k) => v.errors[k]).join("; ");
     $("#settings-note").className = "note err";
+    return;
   }
+  settingsValues = v.values;
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(v.values));
+  buildSettingsForm();
+  renderLights();
+  $("#settings-note").textContent = "saved in this browser";
+  $("#settings-note").className = "note ok";
 }
 
-async function saveOnly() {
+function settingsJSON() {
+  return JSON.stringify(settingsValues, null, 2);
+}
+
+async function copySettings() {
   try {
-    const r = await api("/api/settings", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ values: readSettingsForm() })
-    });
-    settingsPayload.values = r.values;
-    settingsValues = r.values;
-    buildSettingsForm();
-    $("#settings-note").textContent = "saved; click Save & flash to apply";
+    await navigator.clipboard.writeText(settingsJSON());
+    $("#settings-note").textContent = "settings JSON copied — paste it into settings_json in the build workflow";
     $("#settings-note").className = "note ok";
+    $("#build-note").textContent = "copied; open the workflow and run it with the JSON pasted in";
   } catch (e) {
-    $("#settings-note").textContent = e.message;
+    $("#settings-note").textContent = "could not copy: " + e.message;
     $("#settings-note").className = "note err";
   }
-}
-
-/* ---------------------------------------------------------------- jobs */
-
-function showJob(job) {
-  if (!job) return;
-  $("#jobbar").classList.remove("hidden");
-  $("#jobstate").textContent =
-    `${job.op} · ${job.state}${job.detail ? " · " + job.detail : ""}` +
-    (job.error ? " · " + job.error : "");
-  $("#jobstate").className = "mono " + (job.error ? "err" : job.state === "done" ? "ok" : "");
-  const p = $("#progress > div");
-  p.style.width = job.progress != null ? Math.round(job.progress * 100) + "%"
-                                      : (job.state === "done" ? "100%" : "0%");
-  $("#log").textContent = (job.log || []).join("\n");
-  $("#log").scrollTop = $("#log").scrollHeight;
-  $("#abort-btn").disabled = ["done", "error"].includes(job.state);
-}
-
-function trackJob(id) {
-  jobId = id; jobSince = 0;
-  clearInterval(jobTimer);
-  $("#jobbar").classList.remove("hidden");
-  jobTimer = setInterval(async () => {
-    try {
-      const r = await api(`/api/jobs/${id}/log?since=${jobSince}`);
-      jobSince = r.next;
-      const lines = r.lines || [];
-      if (lines.length) {
-        const log = $("#log");
-        log.textContent += (log.textContent ? "\n" : "") + lines.join("\n");
-        log.scrollTop = log.scrollHeight;
-      }
-      const j = await api(`/api/jobs/${id}`);
-      $("#jobstate").textContent =
-        `${j.job.op} · ${j.job.state}${j.job.detail ? " · " + j.job.detail : ""}` +
-        (j.job.error ? " · " + j.job.error : "");
-      $("#jobstate").className = "mono " +
-        (j.job.error ? "err" : j.job.state === "done" ? "ok" : "");
-      const p = $("#progress > div");
-      p.style.width = j.job.progress != null ? Math.round(j.job.progress * 100) + "%"
-                                             : (j.job.state === "done" ? "100%" : "0%");
-      if (["done", "error"].includes(j.job.state)) {
-        clearInterval(jobTimer); jobTimer = null;
-        $("#abort-btn").disabled = true;
-        if (j.job.result && j.job.result.file &&
-            (j.job.op === "backup_app" || j.job.op === "backup_full")) {
-          const a = document.createElement("a");
-          a.href = apiUrl(`/api/jobs/${id}/download`);
-          a.className = "small";
-          const b = document.createElement("button");
-          b.className = "small"; b.textContent = "Download " + j.job.result.file;
-          a.append(b);
-          $("#jobstate").append("  ", a);
-        }
-        await refreshStatus(); await refreshFiles();
-        if (j.job.op === "apply_settings") await refreshSettings();
-        scheduleIdle();
-      }
-    } catch (e) {
-      $("#jobstate").textContent = "lost the job: " + e.message;
-      $("#jobstate").className = "mono err";
-      clearInterval(jobTimer); jobTimer = null;
-    }
-  }, 400);
-}
-
-async function startJob(op, params = {}) {
-  try {
-    const r = await api("/api/jobs", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ op, params })
-    });
-    clearInterval(idleTimer);
-    $("#log").textContent = "";
-    trackJob(r.job.id);
-    await refreshStatus();
-  } catch (e) { alert(e.message); }
 }
 
 /* ---------------------------------------------------------------- confirm */
@@ -880,118 +763,283 @@ function confirmTyped(title, text, word = "WRITE") {
   });
 }
 
-/* ---------------------------------------------------------------- actions */
+/* ------------------------------------------------------------- operations */
 
-async function askRestore(name) {
-  if (!await confirmTyped("Restore application",
-      `Flash ${name} over DFU alt 0? The pad reboots when the write completes.`)) return;
-  startJob("restore", { file: name, confirm: true });
+function updateButtons() {
+  $$("button[data-op]").forEach((b) => { b.disabled = busy; });
+  $$("#tab-lights button").forEach((b) => { b.disabled = busy; });
+  $("#restore-btn").disabled = busy || !pendingRestore;
+  $("#upload-btn").disabled = busy || !pendingUpload;
+  $("#boot-btn").disabled = busy || !pendingBoot;
+  $("#detach-btn").disabled = busy;
+  $("#settings-save").disabled = busy;
+  $("#pick-serial").disabled = busy || !CAP.serial;
+  $("#pick-dfu").disabled = busy || !CAP.usb;
+  $("#abort-btn").disabled = busy ? opKind !== "read" : true;
 }
 
-$("#restore-btn").onclick = () => {
-  const name = $("#restore-select").value;
-  if (name) askRestore(name);
-};
+function opLog(line) {
+  const log = $("#log");
+  log.textContent += (log.textContent ? "\n" : "") + line;
+  log.scrollTop = log.scrollHeight;
+}
 
-document.querySelectorAll("button[data-op]").forEach(b => {
-  b.onclick = () => startJob(b.dataset.op);
-});
+function opProgress(frac) {
+  $("#progress > div").style.width = Math.round(Math.max(0, Math.min(1, frac)) * 100) + "%";
+}
 
-$("#file").onchange = async (ev) => {
-  const f = ev.target.files[0];
-  appUploadId = null;
-  if (!f) { $("#file-info").textContent = ""; setBusy(status && status.busy); return; }
-  $("#file-info").textContent = "checking " + f.name + "…";
-  $("#file-info").className = "note";
+async function runOp(title, kind, fn) {
+  if (busy) { alert("another operation is running"); return false; }
+  busy = true; opKind = kind; cancelRequested = false;
+  $("#jobbar").classList.remove("hidden");
+  $("#jobstate").textContent = title.replace(/…$/, "") + " · starting";
+  $("#jobstate").className = "mono";
+  $("#progress > div").style.width = "0%";
+  $("#log").textContent = "";
+  updateButtons();
+  let ok = true;
   try {
-    const r = await fetch(apiUrl("/api/upload?kind=app"), {
-      method: "POST",
-      headers: { "Content-Type": "application/octet-stream", "X-Filename": f.name },
-      body: f
-    });
-    const body = await r.json();
-    if (!r.ok) throw new Error(body.error || body.reason || ("HTTP " + r.status));
-    appUploadId = body.upload_id;
-    $("#file-info").textContent =
-      `${body.name}: ${fmtSize(body.bytes)} — app area OK (directory and CRCs valid)`;
+    await fn();
+    $("#jobstate").textContent = title.replace(/…$/, "") + " · done";
+    $("#jobstate").className = "mono ok";
+    opProgress(1);
   } catch (e) {
-    $("#file-info").textContent = "rejected: " + e.message;
-    $("#file-info").className = "note err";
-    return;
+    ok = false;
+    opLog("error: " + (e && e.message ? e.message : String(e)));
+    $("#jobstate").textContent = title.replace(/…$/, "") + " · error";
+    $("#jobstate").className = "mono err";
+  } finally {
+    busy = false; opKind = null;
+    await refreshStatus();
   }
-  $("#file-info").className = "note ok";
-  setBusy(status && status.busy);
-};
+  return ok;
+}
 
-$("#upload-btn").onclick = async () => {
-  if (!appUploadId) return;
+async function withDfu(fn, leave) {
+  const dev = await S.enterDfu(navigator.usb, serialPort);
+  const dfu = new S.Dfu(dev);
+  await dfu.open();
+  try {
+    return await fn(dfu);
+  } finally {
+    if (leave) {
+      try { await dfu.clearError(); } catch (e) {}
+      try { await dfu.detach(); } catch (e) {}
+    }
+    await dfu.close();
+  }
+}
+
+async function waitForApp(timeoutMs) {
+  const start = Date.now();
+  while (Date.now() - start < (timeoutMs || 15000)) {
+    refreshMidi();
+    let dfu = null;
+    try { dfu = await S.findDfu(navigator.usb); } catch (e) {}
+    if (midiOut && !dfu) return true;
+    await S.sleep(300);
+  }
+  return false;
+}
+
+function checkCancel() {
+  if (cancelRequested) throw new Error("cancelled");
+}
+
+async function saveBytes(bytes, name) {
+  const sha = await S.sha256Hex(bytes);
+  const url = URL.createObjectURL(new Blob([bytes], { type: "application/octet-stream" }));
+  const a = document.createElement("a");
+  a.href = url; a.download = name;
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 30000);
+  return sha;
+}
+
+function blockProgress() {
+  return {
+    block: (sent, total, done, len) => {
+      opProgress(len ? done / len : sent / total);
+      if (sent === total || sent % 8 === 0) opLog("block " + sent + "/" + total);
+    },
+    manifest: (state) => opLog("manifest state " + state),
+  };
+}
+
+async function backup(kind) {
+  const isApp = kind === "app";
+  await runOp(isApp ? "Backup application…" : "Backup full flash…", "read", async () => {
+    await withDfu(async (dfu) => {
+      opLog("entered DFU");
+      const max = isApp ? S.APP_AREA_MAX : S.FLASH_SIZE;
+      const data = await dfu.upload(isApp ? 0 : 1, max, (n) => {
+        checkCancel();
+        opProgress(max ? n / max : 0);
+        if (n % 32768 === 0) opLog("read " + n + " bytes");
+      });
+      if (!data.length) throw new Error("the bootloader reports no valid application area");
+      if (!isApp && data.length !== S.FLASH_SIZE)
+        throw new Error("short dump: " + data.length + " of " + S.FLASH_SIZE + " bytes");
+      if (isApp) {
+        const check = S.validateAppArea(data, "app.bin");
+        opLog("validator: " + (check.ok ? "OK" : check.reason));
+        if (!check.ok) throw new Error("read back an area the validator rejects: " + check.reason);
+      }
+      const name = (isApp ? "app_" : "flash_") + stamp() + ".bin";
+      const sha = await saveBytes(data, name);
+      opLog("saved " + name + " (" + data.length + " bytes)");
+      opLog("sha256 " + sha);
+    }, true);
+    if (await waitForApp(8000)) opLog("the pad is back in APP mode");
+    else opLog("note: the app did not reappear yet — check Status");
+  });
+}
+
+function flashProgress() { return blockProgress(); }
+
+async function flashApp(name, bytes) {
   if (!await confirmTyped("Flash firmware",
-      "Write the uploaded app area over DFU alt 0? If the transfer is interrupted the pad " +
-      "stays in the bootloader and this page can re-flash it.")) return;
-  startJob("upload", { upload_id: appUploadId, confirm: true });
+      "Write " + name + " over DFU alt 0? The pad reboots when the write completes; if the " +
+      "transfer is interrupted it stays in the bootloader and this page can re-flash it.")) return;
+  await runOp("Flash " + name + "…", "write", async () => {
+    await withDfu(async (dfu) => {
+      opLog("entered DFU; writing " + fmtSize(bytes.length));
+      await dfu.download(0, bytes, flashProgress());
+      opLog("write complete; the bootloader verified the area");
+    }, false);
+    if (await waitForApp(20000)) opLog("the pad is back in APP mode");
+    else throw new Error("the write was accepted but the app did not appear; replug the pad and check Status");
+  });
+}
+
+async function updateBootloader(name, bytes) {
+  if (!await confirmTyped("Update bootloader",
+      "Write the bootloader update package " + name + " through alt 2? The bootloader " +
+      "verifies it, then performs two sector-0 pointer writes before the installer runs. " +
+      "Keep the cable connected and the pad powered.")) return;
+  await runOp("Update bootloader…", "write", async () => {
+    await withDfu(async (dfu) => {
+      opLog("entered DFU; writing " + fmtSize(bytes.length));
+      await dfu.download(2, bytes, flashProgress());
+      opLog("package written; the bootloader is rebooting into the installer");
+    }, false);
+    if (await waitForApp(30000)) opLog("the pad is back in APP mode");
+    else opLog("the installer may still be running — check Status in a few seconds");
+  });
+}
+
+async function leaveDfu() {
+  await runOp("Leave DFU…", "write", async () => {
+    const dev = await S.findDfu(navigator.usb);
+    if (!dev) throw new Error("no DFU device is visible; grant it on the Status tab first");
+    const dfu = new S.Dfu(dev);
+    await dfu.open();
+    try { await dfu.detach(); } finally { await dfu.close(); }
+    if (await waitForApp(15000)) opLog("the app is running");
+    else throw new Error("the pad is still in the bootloader");
+  });
+}
+
+/* ---------------------------------------------------------------- actions */
+
+async function pickAppFile(ev, infoEl, setPending) {
+  setPending(null);
+  const f = ev.target.files[0];
+  if (!f) { infoEl.textContent = ""; infoEl.className = "note"; updateButtons(); return; }
+  infoEl.textContent = "checking " + f.name + "…";
+  infoEl.className = "note";
+  let bytes;
+  try { bytes = new Uint8Array(await f.arrayBuffer()); }
+  catch (e) { infoEl.textContent = "could not read the file: " + e.message; infoEl.className = "note err"; updateButtons(); return; }
+  const v = S.validateAppArea(bytes, f.name);
+  if (!v.ok) {
+    infoEl.textContent = "rejected: " + v.reason;
+    infoEl.className = "note err";
+    updateButtons(); return;
+  }
+  setPending({ name: f.name, bytes });
+  infoEl.textContent = `${f.name}: ${fmtSize(bytes.length)} — app area OK (directory and CRCs valid)`;
+  infoEl.className = "note ok";
+  updateButtons();
+}
+
+$("#restore-file").onchange = (ev) =>
+  pickAppFile(ev, $("#restore-info"), (v) => { pendingRestore = v; });
+$("#file").onchange = (ev) =>
+  pickAppFile(ev, $("#file-info"), (v) => { pendingUpload = v; });
+
+$("#restore-btn").onclick = () => {
+  if (pendingRestore) flashApp(pendingRestore.name, pendingRestore.bytes);
+};
+$("#upload-btn").onclick = () => {
+  if (pendingUpload) flashApp(pendingUpload.name, pendingUpload.bytes);
 };
 
 $("#boot-file").onchange = async (ev) => {
+  pendingBoot = null;
   const f = ev.target.files[0];
-  if (!f) return;
-  $("#boot-file-info").textContent = "checking " + f.name + "…";
-  try {
-    const r = await fetch(apiUrl("/api/upload?kind=boot"), {
-      method: "POST",
-      headers: { "Content-Type": "application/octet-stream", "X-Filename": f.name },
-      body: f
-    });
-    const body = await r.json();
-    if (!r.ok) throw new Error(body.error || body.reason || ("HTTP " + r.status));
-    bootUploadId = body.upload_id;
-    $("#boot-file-info").textContent = `${body.name}: ${fmtSize(body.bytes)} — package size OK`;
-    await refreshFiles();
-  } catch (e) {
-    bootUploadId = null;
-    $("#boot-file-info").textContent = "rejected: " + e.message;
-    $("#boot-file-info").className = "note err";
+  if (!f) { $("#boot-info").textContent = ""; updateButtons(); return; }
+  $("#boot-info").textContent = "checking " + f.name + "…";
+  const bytes = new Uint8Array(await f.arrayBuffer());
+  const v = S.validateBootPackage(bytes.length);
+  if (!v.ok) {
+    $("#boot-info").textContent = "rejected: " + v.reason;
+    $("#boot-info").className = "note err";
+    updateButtons(); return;
   }
+  pendingBoot = { name: f.name, bytes };
+  $("#boot-info").textContent = `${f.name}: ${fmtSize(bytes.length)} — package size OK`;
+  $("#boot-info").className = "note ok";
+  updateButtons();
 };
 
-$("#boot-btn").onclick = async () => {
-  const source = $("#boot-source").value;
-  if (!source) return;
-  if (!await confirmTyped("Update bootloader",
-      "Write the bootloader update package through alt 2? The bootloader verifies it, then " +
-      "performs two sector-0 pointer writes before the installer runs. Keep the cable " +
-      "connected and the pad powered.")) return;
-  startJob("boot_update", { source, confirm: true });
+$("#boot-btn").onclick = () => {
+  if (pendingBoot) updateBootloader(pendingBoot.name, pendingBoot.bytes);
+};
+$("#detach-btn").onclick = () => leaveDfu();
+
+$$("button[data-op]").forEach((b) => {
+  b.onclick = () => backup(b.dataset.op === "backup_app" ? "app" : "full");
+});
+
+$("#pick-serial").onclick = async () => {
+  try {
+    await navigator.serial.requestPort({
+      filters: [{ usbVendorId: S.APP_VID, usbProductId: S.APP_PID }],
+    });
+  } catch (e) { if (e.name !== "NotFoundError") alert(e.message); }
+  await refreshStatus();
 };
 
-$("#detach-btn").onclick = () => startJob("detach");
+$("#pick-dfu").onclick = async () => {
+  try {
+    await navigator.usb.requestDevice({
+      filters: [{ vendorId: S.APP_VID, productId: S.DFU_PID }],
+    });
+  } catch (e) { if (e.name !== "NotFoundError") alert(e.message); }
+  await refreshStatus();
+  await readBootVersion();
+};
 
-$("#abort-btn").onclick = async () => {
-  if (!jobId) return;
-  try { await api(`/api/jobs/${jobId}/abort`, { method: "POST" }); }
-  catch (e) { alert(e.message); }
+$("#abort-btn").onclick = () => {
+  if (opKind !== "read") return;
+  cancelRequested = true;
+  opLog("cancel requested; stopping after the current block");
 };
 
 $("#close-job").onclick = () => {
-  clearInterval(jobTimer); jobTimer = null;
-  $("#jobbar").classList.add("hidden");
-  scheduleIdle();
+  if (!busy) $("#jobbar").classList.add("hidden");
 };
 
-$("#refresh").onclick = async () => { await refreshStatus(); await refreshFiles(); };
+$("#refresh").onclick = async () => {
+  await refreshStatus();
+  if (dfuDevice) await readBootVersion();
+};
 
 /* lights events */
-$("#apply-all-colour").onclick = () => {
-  const all = Array.from({length: 16}, (_, i) => i);
-  lightsPost("color", all, lastColourVelocity);
-};
-$("#force-all").onclick = () => {
-  const all = Array.from({length: 16}, (_, i) => i);
-  lightsPost("force", all, 0);
-};
-$("#clear-all").onclick = () => {
-  const all = Array.from({length: 16}, (_, i) => i);
-  lightsPost("color", all, 0);
-};
+$("#apply-all-colour").onclick = () => lightsSend("color", Array.from({ length: 16 }, (_, i) => i), lastColourVelocity);
+$("#force-all").onclick = () => lightsSend("force", Array.from({ length: 16 }, (_, i) => i), 0);
+$("#clear-all").onclick = () => lightsSend("color", Array.from({ length: 16 }, (_, i) => i), 0);
 $("#anim-kind").onchange = fillAnimLevels;
 $("#anim-brush").onclick = () => {
   const kind = $("#anim-kind").value;
@@ -999,45 +1047,30 @@ $("#anim-brush").onclick = () => {
   if (kind === "off") setBrush("anim", 0, "animation off");
   else setBrush("anim", animVelocity(), `${kind} level ${level} (velocity ${animVelocity()})`);
 };
-$("#anim-all").onclick = () => {
-  const all = Array.from({length: 16}, (_, i) => i);
-  lightsPost("anim", all, animVelocity());
-};
-document.querySelectorAll("button[data-bank]").forEach(b => {
-  b.onclick = () => lightsPost("bank", [], Number(b.dataset.bank));
+$("#anim-all").onclick = () => lightsSend("anim", Array.from({ length: 16 }, (_, i) => i), animVelocity());
+$$("button[data-bank]").forEach((b) => {
+  b.onclick = () => lightsSend("bank", [], Number(b.dataset.bank));
 });
 
 /* settings events */
-$("#settings-save").onclick = () => { if (settingsPayload) saveOnly(); };
-$("#settings-apply").onclick = async () => {
-  if (!settingsPayload) return;
-  const values = readSettingsForm();
-  if (!await confirmTyped("Build & flash settings",
-      "Rebuild MidiFighterSpectra with these settings and flash it over DFU alt 0? " +
-      "Compiling takes about a minute; the pad reboots when the write completes.")) return;
-  startJob("apply_settings", { settings: values, confirm: true });
-};
+$("#settings-save").onclick = saveSettings;
 $("#settings-reset").onclick = () => {
-  if (!settingsPayload) return;
-  settingsPayload.values = Object.assign({}, settingsPayload.defaults);
+  settingsValues = Object.assign({}, S.DEFAULTS);
   buildSettingsForm();
-  $("#settings-note").textContent = "defaults loaded; Save & flash to apply";
+  renderLights();
+  $("#settings-note").textContent = "defaults loaded; save to keep them";
   $("#settings-note").className = "note";
 };
+$("#settings-copy").onclick = copySettings;
+$("#settings-copy2").onclick = copySettings;
+$("#build-open").onclick = () => window.open(BUILD_URL, "_blank", "noopener");
 
-/* tabs + lights polling */
-function lightsPolling(on) {
-  clearInterval(lightsTimer); lightsTimer = null;
-  if (on) { loadLights(); lightsTimer = setInterval(loadLights, 800); }
-}
-
+/* tabs */
 function activateTab(name) {
   const b = document.querySelector(`#tabs button[data-tab="${name}"]`);
   if (!b) return;
-  document.querySelectorAll("#tabs button").forEach(x => x.classList.toggle("active", x === b));
-  document.querySelectorAll("section.tab").forEach(s =>
-    s.classList.toggle("active", s.id === "tab-" + name));
-  lightsPolling(name === "lights");
+  $$("#tabs button").forEach((x) => x.classList.toggle("active", x === b));
+  $$("section.tab").forEach((s) => s.classList.toggle("active", s.id === "tab-" + name));
 }
 
 $("#tabs").onclick = (ev) => {
@@ -1048,34 +1081,25 @@ window.addEventListener("hashchange", () =>
   activateTab(location.hash.slice(1) || "status"));
 
 /* boot */
-async function detectServer() {
-  let local = false;
-  try { local = (await fetch("/api/status", { cache: "no-store" })).ok; } catch (e) {}
-  if (!local) {
-    API_BASE = localStorage.getItem("smcpad-api") || "http://127.0.0.1:8765";
-    $("#server-card").hidden = false;
-    $("#server-url").value = API_BASE;
-  }
-  return !local;
-}
-async function boot() {
-  await detectServer();
-  refreshStatus(); refreshFiles(); refreshSettings();
-  api("/api/lights").then(r => { renderLights(r.lights); buildPalette(r.lights.palette); })
-                   .catch(() => {});
-}
-$("#server-connect").onclick = () => {
-  try { API_BASE = new URL($("#server-url").value.trim()).origin; }
-  catch (e) { API_BASE = "http://127.0.0.1:8765"; }
-  $("#server-url").value = API_BASE;
-  localStorage.setItem("smcpad-api", API_BASE);
-  boot();
-};
 buildPadGrid();
 fillAnimLevels();
+buildPalette(S.PALETTE);
+buildSettingsForm();
+renderLights();
 activateTab(location.hash.slice(1) || "status");
-boot();
-scheduleIdle();
+initMidi().then(refreshStatus);
+refreshStatus();
+if (CAP.usb) {
+  navigator.usb.addEventListener("connect", () => refreshStatus());
+  navigator.usb.addEventListener("disconnect", () => refreshStatus());
+}
+if (CAP.serial) {
+  navigator.serial.addEventListener("connect", () => refreshStatus());
+  navigator.serial.addEventListener("disconnect", () => refreshStatus());
+}
+setInterval(refreshStatus, 2000);
+if (!CAP.usb || !CAP.serial || !CAP.midi)
+  $("#settings-note").textContent = "this browser cannot reach the pad — use Chrome or Edge";
 </script>
 </body>
 </html>
