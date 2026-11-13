@@ -35,8 +35,17 @@ other documents and in git.
   windows are tens of ms, at the two sector-0 writes) have not been done deliberately.
 - The flash's block-protection bits (chip ID 0xCD7013): semantics not confirmed; the installer
   clears them and reports what it saw.
-- `install_from_stock.py` was last run end to end before the `jlfs.c` refactor of the
-  bootloader: run it again on a stock pad before a release.
+- **`install_from_stock.py` hangs on the Pocket** (2026-11-12 and again 2026-11-13). The
+  installer and staging area write and read back, and the sector-0 switch verifies, but after
+  the power cycle the pad is dark: sector 0 points at `0x41000` and `0x1000..0x26000` stay
+  stock, so the installer does not get past its entry (in the 2026-11-12 run the IDG page at
+  `0x4C000` stayed `FF`, i.e. `install_main` never reached its first `diag()`). The second
+  attempt packaged `fw/boot/out/install.bin` with the continuous-read
+  fix (`f9ec3a4`; the disassembly exits SFC_CON mode 6/7 with `cs_level(0)` and `0xFF` bytes
+  before the first command), so that fix did not cure it. Cause still unknown; on the Pocket
+  the MaskROM path (`maskrom.py install-boot` + `dfu_flash.sh`) is the only install. The
+  reference-board (encrypted) variant has not been re-run since the `jlfs.c` refactor: run it
+  end to end before a release.
 
 ## GrooveBox
 

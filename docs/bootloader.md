@@ -2,7 +2,10 @@
 
 Status (2026-10-20): installed on the pad. It chains to the application, takes it over DFU
 (`host/dfu_flash.sh`, about 14 s round trip, no Pico, no sudo), survives interrupted
-transfers, and installs on a stock pad without the Pico (`host/install_from_stock.py`). It is 9 KB and bare-metal: no JieLi SDK, TinyUSB 0.21 (DFU class) on our
+transfers. The install from a stock pad over USB-MIDI, without the Pico
+(`host/install_from_stock.py`), **hangs on the Pocket** (see "Installing from the stock
+firmware"); there the bootloader goes in through the ROM loader (`host/maskrom.py
+install-boot`). It is 9 KB and bare-metal: no JieLi SDK, TinyUSB 0.21 (DFU class) on our
 `fw/smcpad/usb/dcd_br25.c` driver, polled.
 
 ## Layout
@@ -26,10 +29,14 @@ Build and install (once, with the Pico; afterwards DFU):
     host/package_fw.sh boot                                 # both areas -> work/flash/
     host/flash_fw.sh                                        # download mode, as before
 
-Or, on a pad that only has the stock firmware (no Pico, no sudo; one power cycle by hand):
+Or, on a pad that only has the stock firmware: over USB-MIDI, without the Pico (no sudo; one
+power cycle by hand) -- **this hangs on the Pocket**, which is installed through the ROM
+loader (Pico with `hw/jl-usbkey`) instead:
 
     host/package_fw.sh boot
-    uv run --with mido --with python-rtmidi host/install_from_stock.py
+    uv run --with mido --with python-rtmidi host/install_from_stock.py   # no Pico; not the Pocket
+    python3 host/maskrom.py install-boot --yes    # Pocket: ROM download mode, then power-cycle
+    host/dfu_flash.sh                             # bootloader is up as DFU 1209:0002
 
 Updating the application afterwards:
 
@@ -113,9 +120,10 @@ Still open:
 - power cuts at random points of a DFU transfer and of a bootloader update (hands on the
   switch).
 - the install from the stock firmware after the jlfs.c refactor (same installer logic; needs
-  a power cycle by hand to re-run). On the Pocket it hangs outright -- see the note under
-  "Installing from the stock firmware"; `host/maskrom.py install-boot` is the way in until
-  that is fixed.
+  a power cycle by hand to re-run). On the Pocket it hangs, with or without the
+  continuous-read fix: 2026-11-12 and 2026-11-13, the second attempt carrying `f9ec3a4` in
+  `install.bin` -- see the note under "Installing from the stock firmware";
+  `host/maskrom.py install-boot` is the way in until that is fixed.
 
 ## Boot decision (fw/boot/boot.c, runs in place from flash)
 
@@ -200,15 +208,19 @@ application in one run, the only manual step a power cycle.
 3. The bootloader finds no application, comes up in DFU mode, and the script runs
    host/dfu_flash.sh.
 
-**On the Pocket pad this path hung (2026-11-12)**, after the sector-0 switch and before the
-installer's step 1: 0x1000..0x26000 stayed stock, the IDG page at 0x4C000 read all `FF` (so
-`install_main` never made it to its first `diag()`), and the pad enumerated as nothing. The
-breadcrumb at 0x31AD0 and the IDG page are the places to look with `memread` while the
-installer is still up; the hang itself is open (`.start`/stack switch, or `flash_begin()`
-against the uboot's continuous-read mode). Recovered through the ROM loader:
+**On the Pocket pad this path hangs.** First seen 2026-11-12, after the sector-0 switch and
+before the installer's step 1: 0x1000..0x26000 stayed stock, the IDG page at 0x4C000 read all
+`FF` (so `install_main` never made it to its first `diag()`), and the pad enumerated as
+nothing. Reproduced 2026-11-13 with the same signature (sector 0 pointing at 0x41000,
+0x1000..0x26000 stock, no USB after the power cycle), with the continuous-read fix already in
+the packaged installer -- `f9ec3a4`; the `install.bin` disassembly exits SFC_CON mode 6/7
+with `cs_level(0)` and `0xFF` bytes before the first command -- so that fix alone does not
+cure it. The breadcrumb at 0x31AD0 (RAM) and the IDG page are the places to look with
+`memread` while the installer is still up; the hang itself is open (`.start`/stack switch, or
+something after `flash_begin()`). Recovered through the ROM loader both times:
 `host/maskrom.py install-boot` wrote the bootloader area and pointed sector 0 back at 0x1000,
 then `host/dfu_flash.sh` installed the application. Until the hang is understood, the MaskROM
-path is the supported install.
+path is the supported install on the Pocket.
 
 The installer leaves a record at 0x4C000 ("IDG1", step << 4 | result, SR1/SR2 before and after
 its unprotect, result of the unprotect; 0x3F = done) and a breadcrumb in RAM at 0x31AD0.
