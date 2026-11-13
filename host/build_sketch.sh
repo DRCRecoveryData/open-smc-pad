@@ -50,7 +50,7 @@ T="$TOOLCHAIN/pi32v2/bin"
 
 PLAT="$ROOT/arduino/smcpad"
 CORE="$PLAT/system"
-OUT="$ROOT/work/sketch/$NAME"
+OUT="${SMCPAD_OUT:-$ROOT/work/sketch/$NAME}"
 TEXT_BASE=0x1E08120                  # app.bin at flash 0x9120 (application area 0x9000)
 
 # ------------------------------------------------------------------ the core (once)
@@ -162,6 +162,11 @@ mkdir -p "$OUT"
 INC=(-I"$PLAT/cores/smcpad" -I"$PLAT/variants/smcpad" -I"$CORE/include")
 for d in "$PLAT"/libraries/*/src; do INC+=(-I"$d"); done
 DEF=(-DARDUINO=10607 -DARDUINO_SMCPAD -DARDUINO_ARCH_BR25 -DSMCPAD)
+if [ -n "${SMCPAD_DEFS:-}" ]; then
+    read -r -a _extra_defs <<< "$SMCPAD_DEFS"
+    DEF+=("${_extra_defs[@]}")
+    echo "== extra defines: $SMCPAD_DEFS"
+fi
 COMMON=(-target pi32v2 -mcpu=r3 -integrated-as -Oz -fno-common -ffunction-sections
         -fdata-sections -mllvm -enable-ipra=false -isystem "$TOOLCHAIN/pi32v2/include" -w)
 CXX=("$T/clang++" "${COMMON[@]}" -std=gnu++14 -fno-exceptions -fno-rtti -fno-threadsafe-statics

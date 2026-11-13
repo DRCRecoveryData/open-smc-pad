@@ -1,0 +1,1047 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SMC-PAD Pocket</title>
+<style>
+  :root {
+    --bg: #0e1014; --panel: #161a21; --panel2: #1c222b; --line: #2a3240;
+    --text: #dfe6f0; --muted: #8b98ab; --accent: #58c7f3; --good: #3ddc97;
+    --warn: #f2b84b; --bad: #f2555a; --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.45 system-ui, -apple-system, Segoe UI, sans-serif; }
+  header { display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+           padding: 18px 22px 12px; }
+  h1 { font-size: 18px; margin: 0; letter-spacing: .3px; }
+  .chip { padding: 3px 12px; border-radius: 999px; font: 600 12px/1.6 var(--mono);
+          letter-spacing: .6px; border: 1px solid var(--line); background: var(--panel2); }
+  .chip.app { border-color: var(--good); color: var(--good); }
+  .chip.dfu { border-color: var(--accent); color: var(--accent); }
+  .chip.stock { border-color: var(--warn); color: var(--warn); }
+  .chip.absent, .chip.offline, .chip.mixed { border-color: var(--bad); color: var(--bad); }
+  .chip.busy { border-color: var(--warn); color: var(--warn); }
+  .muted { color: var(--muted); font-size: 13px; }
+  #devline { flex: 1 1 320px; font-family: var(--mono); font-size: 12.5px; }
+  button { background: var(--panel2); color: var(--text); border: 1px solid var(--line);
+           padding: 8px 14px; border-radius: 8px; cursor: pointer; font: inherit; }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { opacity: .45; cursor: default; }
+  button.primary { background: #16384a; border-color: #2d6a88; }
+  button.danger { background: #3a1a1d; border-color: #7a3036; }
+  button.small { padding: 4px 9px; font-size: 12.5px; }
+  button.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+  nav { display: flex; gap: 6px; padding: 0 22px; border-bottom: 1px solid var(--line);
+        flex-wrap: wrap; }
+  nav button { border: none; border-bottom: 2px solid transparent; border-radius: 0;
+               background: none; color: var(--muted); padding: 10px 12px; }
+  nav button.active { color: var(--text); border-bottom-color: var(--accent); }
+  main { padding: 20px 22px 8px; display: grid; gap: 18px; max-width: 1100px; }
+  section.tab { display: none; gap: 18px; grid-template-columns: 1fr; }
+  section.tab.active { display: grid; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+          padding: 16px 18px; }
+  .card h2 { font-size: 14px; margin: 0 0 6px; letter-spacing: .4px; text-transform: uppercase;
+             color: var(--muted); }
+  .card p { margin: 6px 0 12px; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; text-transform: uppercase;
+       letter-spacing: .5px; }
+  td.mono, .mono { font-family: var(--mono); font-size: 12.5px; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+         background: var(--bad); margin-right: 6px; vertical-align: 1px; }
+  .dot.ok { background: var(--good); }
+  select, input[type=file], input[type=number], input[type=color] {
+         background: var(--panel2); color: var(--text); border: 1px solid var(--line);
+         border-radius: 8px; padding: 7px 9px; font: inherit; }
+  input[type=color] { padding: 2px; width: 54px; height: 34px; cursor: pointer; }
+  input[type=number] { width: 110px; }
+  #jobbar { position: sticky; bottom: 0; margin: 0 22px 18px; background: #10151b;
+            border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+  #jobbar.hidden { display: none; }
+  #jobstate { font: 600 13px var(--mono); }
+  #progress { height: 4px; background: var(--panel2); border-radius: 2px; margin: 8px 0;
+              overflow: hidden; }
+  #progress > div { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+  #log { margin: 0; max-height: 190px; overflow: auto; font: 12px/1.5 var(--mono);
+         color: #b9c6d8; white-space: pre-wrap; }
+  dialog { background: var(--panel); color: var(--text); border: 1px solid var(--line);
+           border-radius: 12px; padding: 22px; max-width: 480px; }
+  dialog::backdrop { background: rgba(0,0,0,.55); }
+  dialog h3 { margin: 0 0 8px; font-size: 16px; }
+  dialog input { width: 100%; margin: 12px 0; padding: 8px 10px; background: var(--panel2);
+                 border: 1px solid var(--line); border-radius: 8px; color: var(--text);
+                 font: 600 15px var(--mono); letter-spacing: 2px; }
+  .note { color: var(--muted); font-size: 13px; }
+  .warnbox { border: 1px solid #6a5220; background: #221c10; color: #e8c887;
+             border-radius: 10px; padding: 10px 12px; font-size: 13px; }
+  .err { color: var(--bad); }
+  .ok { color: var(--good); }
+
+  /* imagery */
+  .hero { width: 100%; height: 230px; object-fit: cover; border-radius: 10px;
+          display: block; border: 1px solid var(--line); }
+  .shot { width: 100%; border-radius: 10px; display: block; border: 1px solid var(--line); }
+
+  /* live pad mockup (pad 0 is bottom-left, rows upwards) */
+  .padwrap { display: flex; gap: 26px; flex-wrap: wrap; align-items: flex-start; }
+  .padgrid { display: grid; grid-template-columns: repeat(4, 82px);
+             grid-template-rows: repeat(4, 82px); gap: 10px; }
+  .pad { position: relative; border-radius: 14px; border: 1px solid #2a3240;
+         background: #0b0d10; cursor: pointer; transition: background .12s;
+         display: flex; align-items: flex-end; justify-content: flex-end; }
+  .pad:hover { border-color: var(--accent); }
+  .pad .num { font: 10px var(--mono); color: #6d7a8c; padding: 4px 7px; }
+  .pad.tap { outline: 2px solid #fff; outline-offset: 2px; }
+  @keyframes gate { 50% { opacity: .08; } }
+  @keyframes pulse { 50% { opacity: .18; } }
+
+  .palette { display: flex; gap: 6px; flex-wrap: wrap; max-width: 430px; }
+  .sw { width: 34px; height: 34px; border-radius: 8px; border: 2px solid #2a3240;
+        cursor: pointer; }
+  .sw.on { border-color: #fff; box-shadow: 0 0 8px rgba(255,255,255,.5); }
+  .sw.dim { opacity: .65; }
+  #brush { font-family: var(--mono); font-size: 12.5px; color: var(--accent); }
+
+  /* settings */
+  .sgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+           gap: 10px 24px; }
+  .field { display: flex; align-items: center; justify-content: space-between; gap: 12px;
+           padding: 7px 0; border-bottom: 1px solid var(--line); }
+  .field label { flex: 1; }
+  .field .hint { display: block; color: var(--muted); font-size: 12px; }
+  .bankcolours td { padding: 6px 8px; }
+  .bankcolours input[type=color] { vertical-align: middle; }
+  .badfield { border-color: var(--bad) !important; }
+</style>
+</head>
+<body>
+<header>
+  <h1>SMC-PAD Pocket</h1>
+  <span id="chip" class="chip">…</span>
+  <div id="devline" class="muted">connecting…</div>
+  <button id="refresh" class="small">Refresh</button>
+</header>
+
+<nav id="tabs">
+  <button data-tab="status" class="active">Status</button>
+  <button data-tab="lights">Lights</button>
+  <button data-tab="settings">Settings</button>
+  <button data-tab="backup">Backup</button>
+  <button data-tab="restore">Restore</button>
+  <button data-tab="upload">Upload</button>
+  <button data-tab="advanced">Advanced</button>
+</nav>
+
+<main>
+  <section id="tab-status" class="tab active">
+    <div class="card"><img class="hero" src="/static/hero.png" alt="SMC-PAD Pocket pad grid"></div>
+    <div class="grid2">
+      <div class="card">
+        <h2>Device</h2>
+        <table>
+          <tr><th style="width:130px">Mode</th><td id="d-mode" class="mono">—</td></tr>
+          <tr><th>USB id</th><td id="d-id" class="mono">—</td></tr>
+          <tr><th>Product</th><td id="d-product">—</td></tr>
+          <tr><th>Serial port</th><td id="d-port" class="mono">—</td></tr>
+          <tr><th>MIDI port</th><td id="d-midi" class="mono">—</td></tr>
+          <tr><th>Bootloader</th><td id="d-boot" class="mono">—</td></tr>
+        </table>
+      </div>
+      <div class="card">
+        <h2>Your pad</h2>
+        <img class="shot" src="/static/device.png" alt="SMC-PAD Pocket">
+        <p class="note">16 RGB pads, one ring each. Lights tab drives them live; Settings
+          rebuilds the Spectra firmware with your options.</p>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Backups</h2>
+      <table id="backups">
+        <thead><tr><th>File</th><th>Kind</th><th>Size</th><th>Date</th><th>SHA-256</th>
+          <th></th><th></th></tr></thead>
+        <tbody><tr><td colspan="7" class="muted">none yet</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="tab-lights" class="tab">
+    <div class="card">
+      <h2>Pad preview</h2>
+      <div class="padwrap">
+        <div class="padgrid" id="padgrid"></div>
+        <div>
+          <p class="note" id="lights-node">—</p>
+          <p class="mono" id="lights-bank">bank —</p>
+          <p class="note">Click a pad to apply the current brush. A white ring marks a real
+            tap seen on the pad's MIDI output. Pad 1 is bottom-left.</p>
+          <p class="note err" id="lights-err"></p>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Colour</h2>
+      <div class="palette" id="palette"></div>
+      <div class="row" style="margin-top:10px">
+        <span id="brush">brush: cyan (velocity 67)</span>
+        <button class="small" id="apply-all-colour">Apply to all pads</button>
+        <button class="small" id="force-all">Force Utility colour</button>
+        <button class="small" id="clear-all">Clear colours</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Animation</h2>
+      <div class="row">
+        <label class="note" for="anim-kind">Kind</label>
+        <select id="anim-kind">
+          <option value="off">off (none)</option>
+          <option value="bright">brightness</option>
+          <option value="gate">gate</option>
+          <option value="pulse">pulse</option>
+        </select>
+        <label class="note" for="anim-level">Level</label>
+        <select id="anim-level"></select>
+        <button class="small" id="anim-brush">Use as brush</button>
+        <button class="small" id="anim-all">Apply to all pads</button>
+      </div>
+      <p class="note" id="anim-note">Brightness 0..15, gate and pulse rates 0..7, timed by
+        MIDI clock or 120 BPM.</p>
+    </div>
+    <div class="card">
+      <h2>Bank</h2>
+      <div class="row">
+        <button class="small" data-bank="0">Bank 1</button>
+        <button class="small" data-bank="1">Bank 2</button>
+        <button class="small" data-bank="2">Bank 3</button>
+        <button class="small" data-bank="3">Bank 4</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-settings" class="tab">
+    <div class="card">
+      <h2>Spectra settings</h2>
+      <p class="note">Every option is compile-time in the sketch, so applying them rebuilds
+        MidiFighterSpectra locally with the new values and flashes it over DFU alt 0.
+        Save alone keeps them for the next apply.</p>
+      <div class="sgrid" id="settings-form"></div>
+      <div class="row" style="margin-top:14px">
+        <button id="settings-save">Save settings</button>
+        <button class="danger" id="settings-apply">Save &amp; flash…</button>
+        <button id="settings-reset">Reset to defaults</button>
+        <span class="note" id="settings-note"></span>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Bank colours</h2>
+      <table class="bankcolours" id="settings-colours">
+        <thead><tr><th>Bank</th><th>Pressed</th><th>Idle</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <p class="note">The Utility colours: shown while a trigger is held, and while it is
+        released. MIDI colour control still overrides both.</p>
+    </div>
+  </section>
+
+  <section id="tab-backup" class="tab">
+    <div class="grid2">
+      <div class="card">
+        <h2>Application backup</h2>
+        <p class="note">Reads the running application area over DFU (alt 0). The file can be
+          flashed back from the Restore tab.</p>
+        <button class="primary" data-op="backup_app">Backup application</button>
+      </div>
+      <div class="card">
+        <h2>Full flash backup</h2>
+        <p class="note">Reads all 512 KiB raw over DFU (alt 1, read-only). For archival:
+          restoring a raw dump needs the Pico ROM flow and is not offered here.</p>
+        <button class="primary" data-op="backup_full">Backup full flash</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-restore" class="tab">
+    <div class="card">
+      <h2>Restore an application backup</h2>
+      <p class="note">Flashes the selected application backup over DFU (alt 0). The bootloader
+        checks the image and writes its directory last, so an interrupted restore leaves the
+        pad in the bootloader instead of half-flashed.</p>
+      <div class="row">
+        <select id="restore-select" style="min-width:320px"></select>
+        <button class="danger" id="restore-btn">Restore…</button>
+      </div>
+      <p class="note" id="restore-note"></p>
+    </div>
+    <div class="card">
+      <h2>Full-flash dumps</h2>
+      <table id="flash-dumps">
+        <thead><tr><th>File</th><th>Size</th><th>Date</th><th></th></tr></thead>
+        <tbody><tr><td colspan="4" class="muted">none yet</td></tr></tbody>
+      </table>
+      <p class="note">These are read-only archives. Restoring one requires the Pico ROM
+        download flow (<span class="mono">host/flash_fw.sh stock</span> on macOS, or
+        <span class="mono">tools/jl-uboot-tool</span> on Linux).</p>
+    </div>
+  </section>
+
+  <section id="tab-upload" class="tab">
+    <div class="card">
+      <h2>Upload application firmware</h2>
+      <p class="note">Pick a built app-area <span class="mono">.bin</span> (a directory +
+        app.bin + cfg_tool.bin, e.g. <span class="mono">work/sketch/…/MidiFighterSpectra.bin</span>).
+        The file is checked on arrival and again before flashing.</p>
+      <div class="row">
+        <input type="file" id="file" accept=".bin">
+        <button class="danger" id="upload-btn" disabled>Upload &amp; flash…</button>
+      </div>
+      <p class="note" id="file-info"></p>
+    </div>
+  </section>
+
+  <section id="tab-advanced" class="tab">
+    <div class="card">
+      <h2>Bootloader update (advanced)</h2>
+      <div class="warnbox">This rewrites the bootloader through DFU alt 2. The package is
+        verified before the two sector-0 pointer writes — the riskiest windows in the whole
+        system. Keep the USB cable connected.</div>
+      <p></p>
+      <div class="row">
+        <select id="boot-source" style="min-width:420px"></select>
+        <button class="danger" id="boot-btn">Update bootloader…</button>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <input type="file" id="boot-file" accept=".bin">
+        <span class="note" id="boot-file-info">or upload a bootloader update package</span>
+      </div>
+      <p class="note" id="boot-info"></p>
+    </div>
+    <div class="card">
+      <h2>Bootloader mode</h2>
+      <p class="note">If a failed write left the pad in the bootloader, this boots the
+        application again (DFU detach).</p>
+      <button id="detach-btn">Leave DFU (boot the app)</button>
+    </div>
+  </section>
+</main>
+
+<div id="jobbar" class="hidden">
+  <div class="row" style="justify-content:space-between">
+    <span id="jobstate" class="mono">—</span>
+    <span class="row" style="gap:8px">
+      <button class="small" id="abort-btn">Abort</button>
+      <button class="small" id="close-job">Close</button>
+    </span>
+  </div>
+  <div id="progress"><div></div></div>
+  <pre id="log"></pre>
+</div>
+
+<dialog id="confirm">
+  <h3 id="confirm-title">Confirm</h3>
+  <div id="confirm-text" class="note"></div>
+  <input id="confirm-input" autocomplete="off" spellcheck="false" placeholder="type WRITE">
+  <div class="row" style="justify-content:flex-end">
+    <button id="confirm-cancel">Cancel</button>
+    <button id="confirm-ok" class="danger" disabled>Confirm</button>
+  </div>
+</dialog>
+
+<script>
+"use strict";
+const $ = (s) => document.querySelector(s);
+let status = null, files = { backups: [], artifacts: {} };
+let jobId = null, jobSince = 0, jobTimer = null, idleTimer = null, lightsTimer = null;
+let appUploadId = null, bootUploadId = null;
+let lightState = null, lightBrush = { action: "color", velocity: 67, label: "cyan (velocity 67)" };
+let lastColourVelocity = 67;
+let settingsPayload = null, settingsValues = null;
+
+const MODE_TEXT = { app: "APP", dfu: "DFU BOOTLOADER", stock: "STOCK FW", absent: "ABSENT",
+                    mixed: "MULTIPLE PADS", offline: "OFFLINE", busy: "BUSY" };
+const GATE_CYCLES = [16, 8, 4, 2, 1, 0.5, 0.25, 0.125];
+const PULSE_CYCLES = [32, 16, 8, 4, 2, 1, 0.5, 0.125];
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, opts);
+  let body = null;
+  try { body = await r.json(); } catch (e) { body = null; }
+  if (!r.ok) {
+    let msg = (body && (body.error || body.reason)) || `HTTP ${r.status}`;
+    if (body && body.fields) msg += ": " + Object.values(body.fields).join("; ");
+    throw new Error(msg);
+  }
+  return body;
+}
+
+function fmtSize(n) {
+  return n >= 1024 * 1024 ? (n / 1048576).toFixed(1) + " MiB"
+       : n >= 1024 ? (n / 1024).toFixed(1) + " KiB" : n + " B";
+}
+function fmtDate(t) { return new Date(t * 1000).toLocaleString(); }
+function hex(rgb) { return "#" + (rgb & 0xFFFFFF).toString(16).padStart(6, "0"); }
+
+function setBusy(busy) {
+  document.querySelectorAll("button[data-op]").forEach(b => b.disabled = busy);
+  document.querySelectorAll("#tab-lights button").forEach(b => b.disabled = busy);
+  $("#restore-btn").disabled = busy;
+  $("#upload-btn").disabled = busy || !appUploadId;
+  $("#boot-btn").disabled = busy || !$("#boot-source").value;
+  $("#detach-btn").disabled = busy;
+  $("#settings-save").disabled = busy;
+  $("#settings-apply").disabled = busy;
+}
+
+function renderStatus(s) {
+  status = s;
+  const d = s.device, mode = d.mode;
+  const chip = $("#chip");
+  chip.textContent = MODE_TEXT[mode] || mode.toUpperCase();
+  chip.className = "chip " + (s.busy ? "busy" : mode);
+  $("#d-mode").textContent = mode + (s.busy ? " (operation running)" : "");
+  $("#d-id").textContent = d.id || "—";
+  $("#d-product").textContent = d.product || "—";
+  const portOk = d.port && d.port_ok;
+  $("#d-port").innerHTML = "";
+  const dot = document.createElement("span");
+  dot.className = "dot" + (portOk ? " ok" : "");
+  $("#d-port").append(dot, document.createTextNode(d.port || "—"));
+  $("#d-midi").textContent = d.midi || "—";
+  $("#d-boot").textContent = d.boot_version || "—";
+  $("#devline").textContent = s.server.offline ? "server started with --offline"
+    : (d.product ? d.product + (d.serial ? "  ·  sn " + d.serial : "") : "no SMC-PAD on USB");
+  setBusy(s.busy);
+}
+
+function renderFiles(f) {
+  files = f;
+  const bks = f.backups || [];
+  const tb = $("#backups tbody");
+  tb.innerHTML = "";
+  if (!bks.length) {
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = 7; td.className = "muted"; td.textContent = "none yet";
+    tr.append(td); tb.append(tr);
+  }
+  for (const b of bks) {
+    const tr = document.createElement("tr");
+    for (const [text, cls] of [[b.name, "mono"], [b.kind, ""], [fmtSize(b.bytes), "mono"],
+                               [fmtDate(b.mtime), ""], [b.sha256.slice(0, 16) + "…", "mono"]]) {
+      const td = document.createElement("td");
+      td.textContent = text; if (cls) td.className = cls;
+      tr.append(td);
+    }
+    const dl = document.createElement("td");
+    const a = document.createElement("a");
+    a.href = "/api/files/download?name=" + encodeURIComponent(b.name);
+    const btn = document.createElement("button");
+    btn.className = "small"; btn.textContent = "Download";
+    a.append(btn); dl.append(a); tr.append(dl);
+    const rs = document.createElement("td");
+    if (b.kind === "app") {
+      const rbtn = document.createElement("button");
+      rbtn.className = "small"; rbtn.textContent = "Restore…";
+      rbtn.onclick = () => askRestore(b.name);
+      rs.append(rbtn);
+    }
+    tr.append(rs);
+    tb.append(tr);
+  }
+
+  const sel = $("#restore-select");
+  sel.innerHTML = "";
+  const apps = bks.filter(b => b.kind === "app");
+  if (!apps.length) {
+    const o = document.createElement("option");
+    o.textContent = "no application backups"; o.value = ""; sel.append(o);
+    $("#restore-btn").disabled = true;
+  } else {
+    for (const b of apps) {
+      const o = document.createElement("option");
+      o.value = b.name; o.textContent = `${b.name}  (${fmtSize(b.bytes)}, ${fmtDate(b.mtime)})`;
+      sel.append(o);
+    }
+    $("#restore-btn").disabled = status ? status.busy : false;
+  }
+
+  const fts = $("#flash-dumps tbody");
+  fts.innerHTML = "";
+  const flashes = bks.filter(b => b.kind === "flash");
+  if (!flashes.length) {
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = 4; td.className = "muted"; td.textContent = "none yet";
+    tr.append(td); fts.append(tr);
+  }
+  for (const b of flashes) {
+    const tr = document.createElement("tr");
+    for (const [text, cls] of [[b.name, "mono"], [fmtSize(b.bytes), "mono"],
+                               [fmtDate(b.mtime), ""]]) {
+      const td = document.createElement("td");
+      td.textContent = text; if (cls) td.className = cls;
+      tr.append(td);
+    }
+    const dl = document.createElement("td");
+    const a = document.createElement("a");
+    a.href = "/api/files/download?name=" + encodeURIComponent(b.name);
+    const btn = document.createElement("button");
+    btn.className = "small"; btn.textContent = "Download";
+    a.append(btn); dl.append(a); tr.append(dl);
+    fts.append(tr);
+  }
+
+  const boot = (f.artifacts || {}).boot_update || {};
+  const bsel = $("#boot-source");
+  const prev = bsel.value;
+  bsel.innerHTML = "";
+  if (boot.ok) {
+    const o = document.createElement("option");
+    o.value = "builtin";
+    o.textContent = `work/flash/boot_update.bin (${fmtSize(boot.bytes)}, ${fmtDate(boot.mtime)})`;
+    bsel.append(o);
+  }
+  if (bootUploadId) {
+    const o = document.createElement("option");
+    o.value = "upload:" + bootUploadId;
+    o.textContent = "uploaded package " + bootUploadId;
+    bsel.append(o);
+    bsel.value = o.value;
+  }
+  if (prev && [...bsel.options].some(o => o.value === prev)) bsel.value = prev;
+  $("#boot-btn").disabled = !bsel.value || (status ? status.busy : false);
+  const fresh = f.artifacts.boot_source_mtime && boot.mtime &&
+                f.artifacts.boot_source_mtime > boot.mtime;
+  $("#boot-info").textContent = fresh
+    ? "note: fw/boot/out/boot.bin is newer than the package — rebuild with host/package_fw.sh boot"
+    : (boot.ok ? "the bootloader reports its version in DFU; the update is a no-op if unchanged"
+               : "no built bootloader package found");
+}
+
+async function refreshStatus() {
+  try { renderStatus(await api("/api/status")); }
+  catch (e) { $("#chip").textContent = "SERVER DOWN"; $("#chip").className = "chip absent"; }
+}
+
+async function refreshFiles() {
+  try { renderFiles(await api("/api/files")); } catch (e) { /* keep the old table */ }
+}
+
+function scheduleIdle() {
+  clearInterval(idleTimer);
+  idleTimer = setInterval(async () => {
+    await refreshStatus(); await refreshFiles();
+  }, 2000);
+}
+
+/* ---------------------------------------------------------------- lights */
+
+const pads = [];
+function buildPadGrid() {
+  const grid = $("#padgrid");
+  grid.innerHTML = "";
+  for (let p = 0; p < 16; p++) {
+    const d = document.createElement("div");
+    d.className = "pad";
+    d.style.gridRow = String(4 - Math.floor(p / 4));
+    d.style.gridColumn = String((p % 4) + 1);
+    const n = document.createElement("span");
+    n.className = "num"; n.textContent = String(p + 1);
+    d.append(n);
+    d.title = "pad " + (p + 1);
+    d.onclick = () => padClick(p);
+    grid.append(d);
+    pads[p] = d;
+  }
+}
+
+function activeHex() {
+  const bank = lightState ? lightState.bank : 0;
+  const v = settingsValues || {};
+  return hex(v["active_b" + bank] != null ? v["active_b" + bank] : 0xFFFFFF);
+}
+function inactiveHex() {
+  const bank = lightState ? lightState.bank : 0;
+  const v = settingsValues || {};
+  return hex(v["inactive_b" + bank] != null ? v["inactive_b" + bank] : 0x000000);
+}
+
+function renderLights(l) {
+  lightState = l;
+  $("#lights-node").textContent = l.node
+    ? l.node + (l.midi_ok ? "  ·  input ok" : "  ·  input unavailable")
+    : "no SMC-PAD MIDI port (switch the pad to APP)";
+  $("#lights-bank").textContent = "bank " + (l.bank + 1);
+  if (l.error) $("#lights-err").textContent = l.error;
+  for (let p = 0; p < 16; p++) {
+    const el = pads[p];
+    if (!el) continue;
+    let color;
+    if (l.colors[p]) color = "#" + l.colors[p];
+    else if (l.force[p]) color = "#ffffff";
+    else color = l.pressed[p] ? activeHex() : inactiveHex();
+    el.style.background = color;
+    el.style.boxShadow = (color !== "#000000") ? "0 0 14px " + color : "none";
+    el.style.filter = "";
+    el.style.animation = "";
+    el.classList.toggle("tap", !!l.pressed[p]);
+    const v = l.anims[p] || 0;
+    if (v >= 42) {
+      const period = Math.max(0.3, Math.min(4, 0.5 / PULSE_CYCLES[v - 42]));
+      el.style.animation = `pulse ${period}s ease-in-out infinite`;
+    } else if (v >= 34) {
+      const period = Math.max(0.12, Math.min(4, 0.5 / GATE_CYCLES[v - 34]));
+      el.style.animation = `gate ${period}s steps(2,end) infinite`;
+    } else if (v >= 18) {
+      el.style.filter = `brightness(${(0.2 + 0.8 * (v - 18) / 15).toFixed(2)})`;
+    }
+  }
+  document.querySelectorAll("button[data-bank]").forEach(b =>
+    b.classList.toggle("on", Number(b.dataset.bank) === l.bank));
+}
+
+async function loadLights() {
+  try { const r = await api("/api/lights"); renderLights(r.lights); }
+  catch (e) { $("#lights-err").textContent = e.message; }
+}
+
+async function lightsPost(action, padList, velocity) {
+  if (status && status.busy) { $("#lights-err").textContent = "an operation is running"; return; }
+  try {
+    const r = await api("/api/lights", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, pads: padList, velocity })
+    });
+    renderLights(r.lights);
+    $("#lights-err").textContent = "";
+  } catch (e) { $("#lights-err").textContent = e.message; }
+}
+
+function setBrush(action, velocity, label) {
+  lightBrush = { action, velocity, label };
+  if (action === "color") lastColourVelocity = velocity;
+  $("#brush").textContent = "brush: " + label;
+}
+
+function buildPalette(palette) {
+  const box = $("#palette");
+  box.innerHTML = "";
+  for (const entry of palette) {
+    const b = document.createElement("button");
+    b.className = "sw" + (entry.name.includes("dim") ? " dim" : "");
+    b.style.background = hex(entry.rgb);
+    b.title = `${entry.name} · velocity ${entry.velocity}`;
+    b.onclick = () => {
+      box.querySelectorAll(".sw").forEach(x => x.classList.remove("on"));
+      b.classList.add("on");
+      setBrush("color", entry.velocity, `${entry.name} (velocity ${entry.velocity})`);
+    };
+    box.append(b);
+  }
+}
+
+function padClick(p) {
+  if (lightBrush.action === "color" || lightBrush.action === "force")
+    lightsPost(lightBrush.action, [p], lightBrush.action === "force" ? 0 : lightBrush.velocity);
+  else if (lightBrush.action === "anim")
+    lightsPost("anim", [p], lightBrush.velocity);
+}
+
+function animVelocity() {
+  const kind = $("#anim-kind").value;
+  const level = Number($("#anim-level").value);
+  if (kind === "off") return 0;
+  if (kind === "bright") return 18 + level;
+  if (kind === "gate") return 34 + level;
+  return 42 + level;
+}
+
+function fillAnimLevels() {
+  const kind = $("#anim-kind").value;
+  const sel = $("#anim-level");
+  const prev = sel.value;
+  sel.innerHTML = "";
+  const max = kind === "bright" ? 15 : 7;
+  for (let i = 0; i <= max; i++) {
+    const o = document.createElement("option");
+    o.value = String(i); o.textContent = String(i);
+    sel.append(o);
+  }
+  if (prev && Number(prev) <= max) sel.value = prev;
+}
+
+/* ---------------------------------------------------------------- settings */
+
+function buildSettingsForm() {
+  const form = $("#settings-form");
+  form.innerHTML = "";
+  for (const f of settingsPayload.fields) {
+    if (f.type === "color") continue;
+    const wrap = document.createElement("div");
+    wrap.className = "field";
+    const label = document.createElement("label");
+    label.textContent = f.label;
+    label.htmlFor = "set-" + f.key;
+    const hint = document.createElement("span");
+    hint.className = "hint"; hint.textContent = f.help || "";
+    label.append(hint);
+    wrap.append(label);
+    let input;
+    if (f.type === "bool") {
+      input = document.createElement("input");
+      input.type = "checkbox";
+      input.checked = !!settingsPayload.values[f.key];
+    } else {
+      input = document.createElement("input");
+      input.type = "number";
+      input.min = f.min; input.max = f.max; input.step = "1";
+      input.value = settingsPayload.values[f.key];
+    }
+    input.id = "set-" + f.key;
+    wrap.append(input);
+    form.append(wrap);
+  }
+
+  const tb = $("#settings-colours tbody");
+  tb.innerHTML = "";
+  for (let b = 0; b < settingsPayload.banks; b++) {
+    const tr = document.createElement("tr");
+    const th = document.createElement("th");
+    th.textContent = "Bank " + (b + 1);
+    tr.append(th);
+    for (const kind of ["active", "inactive"]) {
+      const key = kind + "_b" + b;
+      const td = document.createElement("td");
+      const input = document.createElement("input");
+      input.type = "color";
+      input.id = "set-" + key;
+      input.value = hex(settingsPayload.values[key]);
+      td.append(input);
+      tr.append(td);
+    }
+    tb.append(tr);
+  }
+}
+
+function readSettingsForm() {
+  const values = {};
+  for (const f of settingsPayload.fields) {
+    const input = document.getElementById("set-" + f.key);
+    if (!input) continue;
+    if (f.type === "bool") values[f.key] = input.checked;
+    else if (f.type === "color") values[f.key] = parseInt(input.value.slice(1), 16) || 0;
+    else values[f.key] = Number(input.value);
+  }
+  return values;
+}
+
+async function refreshSettings() {
+  try {
+    settingsPayload = await api("/api/settings");
+    settingsValues = settingsPayload.values;
+    buildSettingsForm();
+    $("#settings-note").textContent = "loaded; bank colours above apply after a flash";
+    $("#settings-note").className = "note";
+  } catch (e) {
+    $("#settings-note").textContent = e.message;
+    $("#settings-note").className = "note err";
+  }
+}
+
+async function saveOnly() {
+  try {
+    const r = await api("/api/settings", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ values: readSettingsForm() })
+    });
+    settingsPayload.values = r.values;
+    settingsValues = r.values;
+    buildSettingsForm();
+    $("#settings-note").textContent = "saved; click Save & flash to apply";
+    $("#settings-note").className = "note ok";
+  } catch (e) {
+    $("#settings-note").textContent = e.message;
+    $("#settings-note").className = "note err";
+  }
+}
+
+/* ---------------------------------------------------------------- jobs */
+
+function showJob(job) {
+  if (!job) return;
+  $("#jobbar").classList.remove("hidden");
+  $("#jobstate").textContent =
+    `${job.op} · ${job.state}${job.detail ? " · " + job.detail : ""}` +
+    (job.error ? " · " + job.error : "");
+  $("#jobstate").className = "mono " + (job.error ? "err" : job.state === "done" ? "ok" : "");
+  const p = $("#progress > div");
+  p.style.width = job.progress != null ? Math.round(job.progress * 100) + "%"
+                                      : (job.state === "done" ? "100%" : "0%");
+  $("#log").textContent = (job.log || []).join("\n");
+  $("#log").scrollTop = $("#log").scrollHeight;
+  $("#abort-btn").disabled = ["done", "error"].includes(job.state);
+}
+
+function trackJob(id) {
+  jobId = id; jobSince = 0;
+  clearInterval(jobTimer);
+  $("#jobbar").classList.remove("hidden");
+  jobTimer = setInterval(async () => {
+    try {
+      const r = await api(`/api/jobs/${id}/log?since=${jobSince}`);
+      jobSince = r.next;
+      const lines = r.lines || [];
+      if (lines.length) {
+        const log = $("#log");
+        log.textContent += (log.textContent ? "\n" : "") + lines.join("\n");
+        log.scrollTop = log.scrollHeight;
+      }
+      const j = await api(`/api/jobs/${id}`);
+      $("#jobstate").textContent =
+        `${j.job.op} · ${j.job.state}${j.job.detail ? " · " + j.job.detail : ""}` +
+        (j.job.error ? " · " + j.job.error : "");
+      $("#jobstate").className = "mono " +
+        (j.job.error ? "err" : j.job.state === "done" ? "ok" : "");
+      const p = $("#progress > div");
+      p.style.width = j.job.progress != null ? Math.round(j.job.progress * 100) + "%"
+                                             : (j.job.state === "done" ? "100%" : "0%");
+      if (["done", "error"].includes(j.job.state)) {
+        clearInterval(jobTimer); jobTimer = null;
+        $("#abort-btn").disabled = true;
+        if (j.job.result && j.job.result.file &&
+            (j.job.op === "backup_app" || j.job.op === "backup_full")) {
+          const a = document.createElement("a");
+          a.href = `/api/jobs/${id}/download`;
+          a.className = "small";
+          const b = document.createElement("button");
+          b.className = "small"; b.textContent = "Download " + j.job.result.file;
+          a.append(b);
+          $("#jobstate").append("  ", a);
+        }
+        await refreshStatus(); await refreshFiles();
+        if (j.job.op === "apply_settings") await refreshSettings();
+        scheduleIdle();
+      }
+    } catch (e) {
+      $("#jobstate").textContent = "lost the job: " + e.message;
+      $("#jobstate").className = "mono err";
+      clearInterval(jobTimer); jobTimer = null;
+    }
+  }, 400);
+}
+
+async function startJob(op, params = {}) {
+  try {
+    const r = await api("/api/jobs", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ op, params })
+    });
+    clearInterval(idleTimer);
+    $("#log").textContent = "";
+    trackJob(r.job.id);
+    await refreshStatus();
+  } catch (e) { alert(e.message); }
+}
+
+/* ---------------------------------------------------------------- confirm */
+
+function confirmTyped(title, text, word = "WRITE") {
+  return new Promise((resolve) => {
+    const dlg = $("#confirm");
+    $("#confirm-title").textContent = title;
+    $("#confirm-text").textContent = text;
+    const input = $("#confirm-input");
+    input.value = "";
+    $("#confirm-ok").disabled = true;
+    const check = () => { $("#confirm-ok").disabled = input.value.trim() !== word; };
+    input.oninput = check;
+    $("#confirm-cancel").onclick = () => { dlg.close(); resolve(false); };
+    $("#confirm-ok").onclick = () => { dlg.close(); resolve(true); };
+    dlg.onclose = () => resolve(false);
+    dlg.showModal();
+    input.focus();
+  });
+}
+
+/* ---------------------------------------------------------------- actions */
+
+async function askRestore(name) {
+  if (!await confirmTyped("Restore application",
+      `Flash ${name} over DFU alt 0? The pad reboots when the write completes.`)) return;
+  startJob("restore", { file: name, confirm: true });
+}
+
+$("#restore-btn").onclick = () => {
+  const name = $("#restore-select").value;
+  if (name) askRestore(name);
+};
+
+document.querySelectorAll("button[data-op]").forEach(b => {
+  b.onclick = () => startJob(b.dataset.op);
+});
+
+$("#file").onchange = async (ev) => {
+  const f = ev.target.files[0];
+  appUploadId = null;
+  if (!f) { $("#file-info").textContent = ""; setBusy(status && status.busy); return; }
+  $("#file-info").textContent = "checking " + f.name + "…";
+  $("#file-info").className = "note";
+  try {
+    const r = await fetch("/api/upload?kind=app", {
+      method: "POST",
+      headers: { "Content-Type": "application/octet-stream", "X-Filename": f.name },
+      body: f
+    });
+    const body = await r.json();
+    if (!r.ok) throw new Error(body.error || body.reason || ("HTTP " + r.status));
+    appUploadId = body.upload_id;
+    $("#file-info").textContent =
+      `${body.name}: ${fmtSize(body.bytes)} — app area OK (directory and CRCs valid)`;
+  } catch (e) {
+    $("#file-info").textContent = "rejected: " + e.message;
+    $("#file-info").className = "note err";
+    return;
+  }
+  $("#file-info").className = "note ok";
+  setBusy(status && status.busy);
+};
+
+$("#upload-btn").onclick = async () => {
+  if (!appUploadId) return;
+  if (!await confirmTyped("Flash firmware",
+      "Write the uploaded app area over DFU alt 0? If the transfer is interrupted the pad " +
+      "stays in the bootloader and this page can re-flash it.")) return;
+  startJob("upload", { upload_id: appUploadId, confirm: true });
+};
+
+$("#boot-file").onchange = async (ev) => {
+  const f = ev.target.files[0];
+  if (!f) return;
+  $("#boot-file-info").textContent = "checking " + f.name + "…";
+  try {
+    const r = await fetch("/api/upload?kind=boot", {
+      method: "POST",
+      headers: { "Content-Type": "application/octet-stream", "X-Filename": f.name },
+      body: f
+    });
+    const body = await r.json();
+    if (!r.ok) throw new Error(body.error || body.reason || ("HTTP " + r.status));
+    bootUploadId = body.upload_id;
+    $("#boot-file-info").textContent = `${body.name}: ${fmtSize(body.bytes)} — package size OK`;
+    await refreshFiles();
+  } catch (e) {
+    bootUploadId = null;
+    $("#boot-file-info").textContent = "rejected: " + e.message;
+    $("#boot-file-info").className = "note err";
+  }
+};
+
+$("#boot-btn").onclick = async () => {
+  const source = $("#boot-source").value;
+  if (!source) return;
+  if (!await confirmTyped("Update bootloader",
+      "Write the bootloader update package through alt 2? The bootloader verifies it, then " +
+      "performs two sector-0 pointer writes before the installer runs. Keep the cable " +
+      "connected and the pad powered.")) return;
+  startJob("boot_update", { source, confirm: true });
+};
+
+$("#detach-btn").onclick = () => startJob("detach");
+
+$("#abort-btn").onclick = async () => {
+  if (!jobId) return;
+  try { await api(`/api/jobs/${jobId}/abort`, { method: "POST" }); }
+  catch (e) { alert(e.message); }
+};
+
+$("#close-job").onclick = () => {
+  clearInterval(jobTimer); jobTimer = null;
+  $("#jobbar").classList.add("hidden");
+  scheduleIdle();
+};
+
+$("#refresh").onclick = async () => { await refreshStatus(); await refreshFiles(); };
+
+/* lights events */
+$("#apply-all-colour").onclick = () => {
+  const all = Array.from({length: 16}, (_, i) => i);
+  lightsPost("color", all, lastColourVelocity);
+};
+$("#force-all").onclick = () => {
+  const all = Array.from({length: 16}, (_, i) => i);
+  lightsPost("force", all, 0);
+};
+$("#clear-all").onclick = () => {
+  const all = Array.from({length: 16}, (_, i) => i);
+  lightsPost("color", all, 0);
+};
+$("#anim-kind").onchange = fillAnimLevels;
+$("#anim-brush").onclick = () => {
+  const kind = $("#anim-kind").value;
+  const level = $("#anim-level").value;
+  if (kind === "off") setBrush("anim", 0, "animation off");
+  else setBrush("anim", animVelocity(), `${kind} level ${level} (velocity ${animVelocity()})`);
+};
+$("#anim-all").onclick = () => {
+  const all = Array.from({length: 16}, (_, i) => i);
+  lightsPost("anim", all, animVelocity());
+};
+document.querySelectorAll("button[data-bank]").forEach(b => {
+  b.onclick = () => lightsPost("bank", [], Number(b.dataset.bank));
+});
+
+/* settings events */
+$("#settings-save").onclick = () => { if (settingsPayload) saveOnly(); };
+$("#settings-apply").onclick = async () => {
+  if (!settingsPayload) return;
+  const values = readSettingsForm();
+  if (!await confirmTyped("Build & flash settings",
+      "Rebuild MidiFighterSpectra with these settings and flash it over DFU alt 0? " +
+      "Compiling takes about a minute; the pad reboots when the write completes.")) return;
+  startJob("apply_settings", { settings: values, confirm: true });
+};
+$("#settings-reset").onclick = () => {
+  if (!settingsPayload) return;
+  settingsPayload.values = Object.assign({}, settingsPayload.defaults);
+  buildSettingsForm();
+  $("#settings-note").textContent = "defaults loaded; Save & flash to apply";
+  $("#settings-note").className = "note";
+};
+
+/* tabs + lights polling */
+function lightsPolling(on) {
+  clearInterval(lightsTimer); lightsTimer = null;
+  if (on) { loadLights(); lightsTimer = setInterval(loadLights, 800); }
+}
+
+function activateTab(name) {
+  const b = document.querySelector(`#tabs button[data-tab="${name}"]`);
+  if (!b) return;
+  document.querySelectorAll("#tabs button").forEach(x => x.classList.toggle("active", x === b));
+  document.querySelectorAll("section.tab").forEach(s =>
+    s.classList.toggle("active", s.id === "tab-" + name));
+  lightsPolling(name === "lights");
+}
+
+$("#tabs").onclick = (ev) => {
+  const b = ev.target.closest("button[data-tab]");
+  if (b) activateTab(b.dataset.tab);
+};
+window.addEventListener("hashchange", () =>
+  activateTab(location.hash.slice(1) || "status"));
+
+/* boot */
+buildPadGrid();
+fillAnimLevels();
+activateTab(location.hash.slice(1) || "status");
+refreshStatus(); refreshFiles(); refreshSettings();
+api("/api/lights").then(r => { renderLights(r.lights); buildPalette(r.lights.palette); })
+                 .catch(() => {});
+scheduleIdle();
+</script>
+</body>
+</html>
