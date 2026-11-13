@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Publish the web UI's static copy to the public Pages repo (the source repo is private,
-# and Pages on a private repo needs a paid plan).
+# Publish the web UI's static copy to the separate public Pages repo (a short, stable URL;
+# the source repo is public too, so GitHub Pages there would work as well).
 #
 #   host/webui/publish_pages.sh
 #

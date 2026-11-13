@@ -65,7 +65,7 @@ It talks to `1209:0002` through standard DFU 1.1 and never writes sector 0:
 ## Firmware builds
 
 Settings are compile-time `-DSPECTRA_*` defines, so firmware cannot be compiled in a browser.
-The Settings tab links to the `firmware.yml` workflow in the private repo: run it with the
+The Settings tab links to the `firmware.yml` workflow: run it with the
 copied settings JSON in `settings_json`, let GitHub Actions build with the JieLi toolchain,
 download `MidiFighterSpectra.bin` from the finished run, and flash it on the Upload tab.
 Backups and settings JSON stay in the browser and Downloads unless you paste them into the
