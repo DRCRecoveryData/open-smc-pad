@@ -442,7 +442,9 @@
       })
       .then(function () { return sleep(100); })
       .then(function () { return port.setSignals({ dataTerminalReady: false }); })
-      .then(function () { return sleep(200); })
+      /* Close at once: the app reboots on DTR low, and Chrome's serial service has crashed
+       * (taking the browser with it) when the port was still being closed as the device
+       * re-enumerated. Once the DTR-low transfer is done, the touch has been delivered. */
       .then(function () { return port.close(); });
   }
 
