@@ -1,4 +1,4 @@
-<h1 align="center">open-smc-pad</h1>
+<h1 align="center">open-smc-pad-pocket</h1>
 
 <p align="center"><b>Open firmware for the M-Vave SMC-PAD Pocket (SK16)</b><br>
 a bootloader, an Arduino core and a step sequencer for a 16-pad MIDI controller</p>
