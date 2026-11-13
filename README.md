@@ -101,9 +101,13 @@ fetches the JieLi compiler from JieLi). More in [arduino/README.md](arduino/READ
 
 **Recovery.** The bootloader goes to DFU by itself after a firmware crashes four times at start,
 and it updates itself through a staging area, so a cut power never leaves the pad without one.
-The last resort, the chip's ROM download mode, needs a Raspberry Pi Pico on the USB data lines
-([`hw/jl-usbkey`](hw/jl-usbkey), [docs/flash-layout.md](docs/flash-layout.md)) — it is also how the
-factory firmware can be written back.
+The [web UI](host/webui)'s Debrick tab covers every state the bootloader can reach: it restores
+the shipped default-settings application, flashes the bootloader package, and explains how to
+force or leave DFU. The last resort, the chip's ROM download mode (a dead bootloader), needs a
+Raspberry Pi Pico on the USB data lines ([`hw/jl-usbkey`](hw/jl-usbkey),
+[docs/flash-layout.md](docs/flash-layout.md)) — it is also how the factory firmware can be written
+back, and the Debrick tab lists the `host/maskrom.py` steps because a web page cannot drive that
+mass-storage device.
 
 ## How it fits together
 

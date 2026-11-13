@@ -82,6 +82,9 @@
              border-radius: 10px; padding: 10px 12px; font-size: 13px; }
   .err { color: var(--bad); }
   .ok { color: var(--good); }
+  pre.cmd { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px;
+            padding: 10px 12px; overflow: auto; font: 12.5px/1.5 var(--mono);
+            color: #b9c6d8; }
 
   /* imagery */
   .hero { width: 100%; height: 230px; object-fit: cover; border-radius: 10px;
@@ -138,6 +141,7 @@
   <button data-tab="backup">Backup</button>
   <button data-tab="restore">Restore</button>
   <button data-tab="upload">Upload</button>
+  <button data-tab="debrick">Debrick</button>
   <button data-tab="advanced">Advanced</button>
 </nav>
 
@@ -326,6 +330,97 @@
     </div>
   </section>
 
+  <section id="tab-debrick" class="tab">
+    <div class="grid2">
+      <div class="card">
+        <h2>Pad state</h2>
+        <p><span id="debrick-state" class="chip">…</span></p>
+        <p class="note" id="debrick-state-text">—</p>
+        <table>
+          <tr><th style="width:130px">Mode</th><td id="debrick-mode" class="mono">—</td></tr>
+          <tr><th>USB id</th><td id="debrick-id" class="mono">—</td></tr>
+          <tr><th>Bootloader</th><td id="debrick-boot" class="mono">—</td></tr>
+        </table>
+        <div class="row" style="margin-top:12px">
+          <button class="small" id="debrick-reboot">Reboot into DFU</button>
+          <button class="small" id="debrick-leave">Leave DFU (boot the app)</button>
+          <button class="small" id="debrick-refresh">Refresh</button>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Force the bootloader open</h2>
+        <ol class="note">
+          <li>Power the pad off. Hold <b>SHIFT + PLAY</b> and power it on: the SHIFT LED blinks
+            and the pad appears as DFU <span class="mono">1209:0002</span>.</li>
+          <li>An application that crash-loops is caught by the bootloader after four
+            unconfirmed boots; a failed application CRC keeps it in DFU the same way.</li>
+          <li>If the application still runs, this page can reboot it into the bootloader
+            (Reboot into DFU, or any backup/restore).</li>
+          <li>Chrome asks once per profile for the DFU device: use
+            <span class="mono">Select DFU device</span> on the Status tab.</li>
+        </ol>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Restore the application</h2>
+      <p class="note">Fetches the application build shipped with this page, checks its SHA-256
+        and the directory/area CRCs, then writes it over DFU alt 0. It works whether the pad runs
+        the application or sits in the bootloader; if it runs, the page reboots it into DFU
+        first. An interrupted write leaves the pad in the bootloader, where this button works
+        again.</p>
+      <p class="mono" id="debrick-app-info">recovery/app.bin — details not loaded yet</p>
+      <div class="row">
+        <button class="primary" id="debrick-app">Restore the shipped application…</button>
+      </div>
+      <p class="note">This is the default-settings build from this repository, not the vendor
+        firmware. Your own builds and backups still go through Restore and Upload.</p>
+    </div>
+    <div class="card">
+      <h2>Repair the bootloader</h2>
+      <div class="warnbox">Writes the bootloader through DFU alt 2 and performs the two sector-0
+        pointer writes — the riskiest windows in the whole system. Keep the USB cable connected
+        and the pad powered.</div>
+      <p class="mono" id="debrick-boot-info">recovery/boot_update.bin — details not loaded
+        yet</p>
+      <div class="row">
+        <button class="danger" id="debrick-boot-btn">Flash the shipped bootloader
+          package…</button>
+      </div>
+      <p class="note">This only helps a bootloader that still runs DFU. A pad that never appears
+        as <span class="mono">1209:0002</span> is in ROM download mode — see below.</p>
+    </div>
+    <div class="card">
+      <h2>Dead bootloader: ROM download mode</h2>
+      <p class="note">If the pad stays dark and never appears as <span class="mono">1209:0002</span>
+        or <span class="mono">1209:0001</span>, the chip may have fallen back to its ROM download
+        mode (USB <span class="mono">4c4a:2542</span>, <span class="mono">BR25
+        UBOOT1.00</span>). That device is USB mass storage, which Chrome never lets a web page
+        drive, so this page cannot write it. The host tools can, with a Raspberry Pi Pico on the
+        USB data lines (<span class="mono">hw/jl-usbkey</span>):</p>
+      <ol class="note">
+        <li>Power the pad off. Flash <span class="mono">hw/jl-usbkey</span> to the Pico once, open
+          its serial console and send <span class="mono">r</span>.</li>
+        <li>Power the pad on. The Pico sends the USB_KEY, then releases the bus; the pad
+          enumerates as <span class="mono">4c4a:2542</span>.</li>
+        <li>Look before writing — status and a full backup:</li>
+      </ol>
+      <pre class="cmd">host/maskrom.py status          # classify the flash, diff the factory image
+host/maskrom.py backup          # all 512 KiB raw, into work/recover/</pre>
+      <ol class="note" start="4">
+        <li>Then either the factory firmware, or this project's bootloader followed by a DFU
+          application flash:</li>
+      </ol>
+      <pre class="cmd">host/maskrom.py restore-stock   # factory firmware, 0..0x75000, byte for byte
+host/maskrom.py install-boot    # bootloader at 0x1000 (+ sector 0 if it drifted)</pre>
+      <p class="note">Every write backs up the flash first and is read back sector for sector;
+        the pad's data above <span class="mono">0x75000</span> is never touched. The factory image
+        is your own dump (<span class="mono">dumps/original_physical_full.bin</span>) and stays
+        off this site. Never write the vendor <span class="mono">.fwsc</span> container. After
+        <span class="mono">install-boot</span>, power-cycle the pad and use the restore button
+        above.</p>
+    </div>
+  </section>
+
   <section id="tab-advanced" class="tab">
     <div class="card">
       <h2>Bootloader update (advanced)</h2>
@@ -386,6 +481,7 @@ const CAP = {
 let midiAccess = null, midiOut = null, midiIn = null, midiError = null;
 let serialPort = null, dfuDevice = null;
 let busy = false, opKind = null, cancelRequested = false;
+let bootVersionBusy = false;
 let pendingRestore = null, pendingUpload = null, pendingBoot = null;
 let settingsValues = loadSettings();
 let lightState = { bank: 0, colors: Array(16).fill(null), force: Array(16).fill(false),
@@ -399,6 +495,10 @@ const GATE_CYCLES = [16, 8, 4, 2, 1, 0.5, 0.25, 0.125];
 const PULSE_CYCLES = [32, 16, 8, 4, 2, 1, 0.5, 0.125];
 const BUILD_URL = "https://github.com/DRCRecoveryData/open-smc-pad/actions/workflows/firmware.yml";
 const SETTINGS_KEY = "smcpad-settings";
+const RECOVERY_DIR = "recovery/";
+const RECOVERY_APP = "app.bin";
+const RECOVERY_BOOT = "boot_update.bin";
+let recoveryManifest = null, recoveryInfoShown = false;
 
 function fmtSize(n) {
   return n >= 1024 * 1024 ? (n / 1048576).toFixed(1) + " MiB"
@@ -490,20 +590,26 @@ async function refreshStatus() {
       : (serialPort ? "no pad detected — plug it in and refresh"
                     : "no pad detected — plug it in, or use Select serial port");
 
+  renderDebrickState();
   updateButtons();
 }
 
 async function readBootVersion() {
-  if (!dfuDevice || busy) return;
+  if (!dfuDevice || busy || bootVersionBusy) return;
+  bootVersionBusy = true;
   const dfu = new S.Dfu(dfuDevice);
   try {
     await dfu.open();
     await dfu.selectAlt(2);
     const v = await dfu.upload(2, 128);
-    $("#d-boot").textContent = new TextDecoder().decode(v).replace(/\s+$/, "") || "—";
+    const version = new TextDecoder().decode(v).replace(/\s+$/, "") || "—";
+    $("#d-boot").textContent = version;
+    $("#debrick-boot").textContent = version;
   } catch (e) {
     $("#d-boot").textContent = "unreadable";
+    $("#debrick-boot").textContent = "unreadable";
   } finally {
+    bootVersionBusy = false;
     await dfu.close();
   }
 }
@@ -772,6 +878,11 @@ function updateButtons() {
   $("#upload-btn").disabled = busy || !pendingUpload;
   $("#boot-btn").disabled = busy || !pendingBoot;
   $("#detach-btn").disabled = busy;
+  $("#debrick-refresh").disabled = busy;
+  $("#debrick-app").disabled = busy;
+  $("#debrick-boot-btn").disabled = busy;
+  $("#debrick-reboot").disabled = busy || !midiOut || !!dfuDevice;
+  $("#debrick-leave").disabled = busy || !dfuDevice;
   $("#settings-save").disabled = busy;
   $("#pick-serial").disabled = busy || !CAP.serial;
   $("#pick-dfu").disabled = busy || !CAP.usb;
@@ -901,6 +1012,10 @@ async function flashApp(name, bytes) {
   if (!await confirmTyped("Flash firmware",
       "Write " + name + " over DFU alt 0? The pad reboots when the write completes; if the " +
       "transfer is interrupted it stays in the bootloader and this page can re-flash it.")) return;
+  await flashAppConfirmed(name, bytes);
+}
+
+async function flashAppConfirmed(name, bytes) {
   await runOp("Flash " + name + "…", "write", async () => {
     await withDfu(async (dfu) => {
       opLog("entered DFU; writing " + fmtSize(bytes.length));
@@ -917,6 +1032,10 @@ async function updateBootloader(name, bytes) {
       "Write the bootloader update package " + name + " through alt 2? The bootloader " +
       "verifies it, then performs two sector-0 pointer writes before the installer runs. " +
       "Keep the cable connected and the pad powered.")) return;
+  await updateBootloaderConfirmed(name, bytes);
+}
+
+async function updateBootloaderConfirmed(name, bytes) {
   await runOp("Update bootloader…", "write", async () => {
     await withDfu(async (dfu) => {
       opLog("entered DFU; writing " + fmtSize(bytes.length));
@@ -937,6 +1056,107 @@ async function leaveDfu() {
     try { await dfu.detach(); } finally { await dfu.close(); }
     if (await waitForApp(15000)) opLog("the app is running");
     else throw new Error("the pad is still in the bootloader");
+  });
+}
+
+/* --------------------------------------------------------------- debrick */
+
+function renderDebrickState() {
+  const mode = dfuDevice ? "dfu" : (midiOut ? "app" : "absent");
+  const state = $("#debrick-state");
+  state.textContent = busy ? "BUSY" : MODE_TEXT[mode];
+  state.className = "chip " + (busy ? "busy" : mode);
+  $("#debrick-mode").textContent = busy ? "operation running" : MODE_TEXT[mode];
+  $("#debrick-id").textContent = mode === "dfu" ? "1209:0002" : mode === "app" ? "1209:0001" : "—";
+  if (!dfuDevice) $("#debrick-boot").textContent = "—";
+  $("#debrick-state-text").textContent = busy
+    ? "An operation is running; the state refreshes when it finishes."
+    : mode === "dfu"
+      ? "The bootloader is running; the application area is missing, corrupt or crash-looping. " +
+        "Restore the shipped application below — the bootloader checks it and writes its " +
+        "directory last."
+      : mode === "app"
+        ? "The application is running. If the pads or lights misbehave, restore the shipped " +
+          "application: the page sends the 1200-baud touch and reboots the pad into the " +
+          "bootloader itself."
+        : "No pad is visible. Check the cable and Refresh. If the pad stays dark and never " +
+          "shows up, read “Dead bootloader” below.";
+  if (dfuDevice && !busy && $("#debrick-boot").textContent === "—") readBootVersion();
+}
+
+async function recoveryEntry(name) {
+  if (!recoveryManifest) {
+    opLog("fetching " + RECOVERY_DIR + "manifest.json");
+    const r = await fetch(RECOVERY_DIR + "manifest.json", { cache: "no-store" });
+    if (!r.ok) throw new Error("recovery/manifest.json: HTTP " + r.status);
+    recoveryManifest = await r.json();
+  }
+  const entry = recoveryManifest[name];
+  if (!entry || typeof entry.sha256 !== "string" || !(entry.size > 0))
+    throw new Error("the recovery manifest has no usable entry for " + name);
+  return entry;
+}
+
+async function loadRecoveryAsset(name, kind) {
+  const entry = await recoveryEntry(name);
+  opLog("fetching " + RECOVERY_DIR + name);
+  const r = await fetch(RECOVERY_DIR + name, { cache: "no-store" });
+  if (!r.ok) throw new Error(name + ": HTTP " + r.status);
+  const bytes = new Uint8Array(await r.arrayBuffer());
+  if (bytes.length !== entry.size)
+    throw new Error(name + ": " + bytes.length + " bytes, the manifest says " + entry.size);
+  const sha = await S.sha256Hex(bytes);
+  if (sha !== entry.sha256)
+    throw new Error(name + ": sha256 " + sha + " does not match the manifest");
+  const v = kind === "boot" ? S.validateBootPackage(bytes.length)
+                            : S.validateAppArea(bytes, name);
+  if (!v.ok) throw new Error(name + ": " + v.reason);
+  opLog(name + ": " + fmtSize(bytes.length) + ", sha256 " + sha + ", validator OK");
+  return { entry, bytes };
+}
+
+async function showRecoveryInfo() {
+  if (recoveryInfoShown) return;
+  try {
+    const app = await recoveryEntry(RECOVERY_APP);
+    const boot = await recoveryEntry(RECOVERY_BOOT);
+    $("#debrick-app-info").textContent =
+      RECOVERY_DIR + RECOVERY_APP + " · " + (app.label || "application") + " · " +
+      fmtSize(app.size) + " · sha256 " + app.sha256;
+    $("#debrick-boot-info").textContent =
+      RECOVERY_DIR + RECOVERY_BOOT + " · " + (boot.label || "bootloader package") + " · " +
+      fmtSize(boot.size) + " · sha256 " + boot.sha256;
+    recoveryInfoShown = true;
+  } catch (e) {
+    $("#debrick-app-info").textContent = "recovery assets unavailable: " + e.message;
+    $("#debrick-boot-info").textContent = "recovery assets unavailable: " + e.message;
+  }
+}
+
+async function restoreShippedApp() {
+  if (!dfuDevice && !midiOut) { alert("No pad detected — plug it in and Refresh."); return; }
+  let asset = null;
+  const ok = await runOp("Fetch recovery application…", "read", async () => {
+    asset = await loadRecoveryAsset(RECOVERY_APP, "app");
+  });
+  if (!ok || !asset) return;
+  await flashApp(RECOVERY_DIR + RECOVERY_APP, asset.bytes);
+}
+
+async function repairShippedBootloader() {
+  if (!dfuDevice && !midiOut) { alert("No pad detected — plug it in and Refresh."); return; }
+  let asset = null;
+  const ok = await runOp("Fetch bootloader package…", "read", async () => {
+    asset = await loadRecoveryAsset(RECOVERY_BOOT, "boot");
+  });
+  if (!ok || !asset) return;
+  await updateBootloader(RECOVERY_DIR + RECOVERY_BOOT, asset.bytes);
+}
+
+async function rebootToDfu() {
+  await runOp("Reboot into DFU…", "write", async () => {
+    const dev = await S.enterDfu(navigator.usb, serialPort);
+    opLog("the pad is in the bootloader (" + (dev.productName || "1209:0002") + ")");
   });
 }
 
@@ -997,6 +1217,15 @@ $("#boot-btn").onclick = () => {
   if (pendingBoot) updateBootloader(pendingBoot.name, pendingBoot.bytes);
 };
 $("#detach-btn").onclick = () => leaveDfu();
+
+$("#debrick-app").onclick = restoreShippedApp;
+$("#debrick-boot-btn").onclick = repairShippedBootloader;
+$("#debrick-reboot").onclick = rebootToDfu;
+$("#debrick-leave").onclick = () => leaveDfu();
+$("#debrick-refresh").onclick = async () => {
+  await refreshStatus();
+  if (dfuDevice) await readBootVersion();
+};
 
 $$("button[data-op]").forEach((b) => {
   b.onclick = () => backup(b.dataset.op === "backup_app" ? "app" : "full");
@@ -1071,6 +1300,10 @@ function activateTab(name) {
   if (!b) return;
   $$("#tabs button").forEach((x) => x.classList.toggle("active", x === b));
   $$("section.tab").forEach((s) => s.classList.toggle("active", s.id === "tab-" + name));
+  if (name === "debrick") {
+    showRecoveryInfo();
+    if (dfuDevice) readBootVersion();
+  }
 }
 
 $("#tabs").onclick = (ev) => {

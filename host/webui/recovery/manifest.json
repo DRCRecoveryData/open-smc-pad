@@ -1,0 +1,13 @@
+{
+  "app.bin": {
+    "size": 149128,
+    "sha256": "b11926ea0d01b9ad524d559d6e8b067c913bd22fb518c54bacac8079d638b824",
+    "label": "Spectra application, default settings"
+  },
+  "boot_update.bin": {
+    "size": 28672,
+    "sha256": "130152157ed0513fbba7ec2dd3b1db42eadfd83642f5cf8e4dad7f4c5e2b08f4",
+    "label": "smcpad-boot 0108 update package",
+    "version": "0108"
+  }
+}

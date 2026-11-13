@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Offline tests for host/webui/device.py: validation and path handling only."""
+import hashlib
+import json
 import os
 from pathlib import Path
 import struct
@@ -18,6 +20,8 @@ import settings as smcpad_settings  # noqa: E402
 GOOD_APP = os.path.join(device.ROOT, "work", "sketch", "MidiFighterSpectra",
                         "MidiFighterSpectra.bin")
 GOOD_AREA = os.path.join(device.ROOT, "work", "flash", "fw_area.bin")
+RECOVERY = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "webui", "recovery")
 
 
 class ValidateTest(unittest.TestCase):
@@ -68,6 +72,36 @@ class ValidateTest(unittest.TestCase):
     def test_rejects_short_file(self):
         ok, why = device.validate_app_area(b"\x00" * 16, "x.bin")
         self.assertFalse(ok)
+
+
+class RecoveryAssetsTest(unittest.TestCase):
+    """The Debrick tab's hosted images, pinned in recovery/manifest.json."""
+
+    PINNED = {
+        "app.bin": (149128, "b11926ea0d01b9ad524d559d6e8b067c913bd22fb518c54bacac8079d638b824"),
+        "boot_update.bin": (28672, "130152157ed0513fbba7ec2dd3b1db42eadfd83642f5cf8e4dad7f4c5e2b08f4"),
+    }
+
+    def test_manifest_matches_the_pins(self):
+        manifest = json.loads(Path(RECOVERY, "manifest.json").read_text())
+        self.assertEqual(set(manifest), set(self.PINNED))
+        for name, (size, sha) in self.PINNED.items():
+            self.assertEqual(manifest[name]["size"], size, name)
+            self.assertEqual(manifest[name]["sha256"], sha, name)
+
+    def test_assets_are_the_pinned_bytes(self):
+        for name, (size, sha) in self.PINNED.items():
+            data = Path(RECOVERY, name).read_bytes()
+            self.assertEqual(len(data), size, name)
+            self.assertEqual(hashlib.sha256(data).hexdigest(), sha, name)
+
+    def test_app_asset_validates_as_an_app_area(self):
+        data = Path(RECOVERY, "app.bin").read_bytes()
+        self.assertEqual(device.validate_app_area(data, "recovery/app.bin"), (True, ""))
+
+    def test_boot_package_size_is_accepted_by_the_page(self):
+        data = Path(RECOVERY, "boot_update.bin").read_bytes()
+        self.assertTrue(0x1000 <= len(data) <= 0xC000)
 
 
 class SafePathTest(unittest.TestCase):

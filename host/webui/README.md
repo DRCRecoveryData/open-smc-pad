@@ -56,6 +56,13 @@ It talks to `1209:0002` through standard DFU 1.1 and never writes sector 0:
 - **Settings** — every `SpectraConfig.h` option (channels, velocity, momentary CC, spark, bank
   wave, sleep, side buttons and the per-bank Utility colours). Save keeps them in this
   browser's `localStorage`; "Copy settings JSON" hands them to the firmware build below.
+- **Debrick** — recovers a pad that will not boot: shows the APP / DFU / no-pad state,
+  reboots a running pad into the bootloader, restores the shipped default-settings application
+  (`recovery/app.bin`, fetched same-origin with its size and sha256 checked in the page) and
+  flashes the shipped bootloader package (`recovery/boot_update.bin`, alt 2) — both behind the
+  typed-WRITE dialog. A pad whose bootloader is gone sits in the chip's ROM download mode
+  (`4c4a:2542`), a USB mass-storage device that Chrome never exposes to web pages; the tab
+  gives the exact Pico + `host/maskrom.py` steps for that state instead.
 - **Advanced** — bootloader update through DFU alt 2 with an explicit typed confirmation, and
   **Leave DFU** to boot the application after a failed write.
 - **Status** — mode (APP / DFU), MIDI and serial ports, bootloader version, and the buttons
@@ -70,13 +77,23 @@ download `MidiFighterSpectra.bin` from the finished run, and flash it on the Upl
 Backups and settings JSON stay in the browser and Downloads unless you paste them into the
 workflow yourself.
 
+## Recovery images
+
+The Debrick tab fetches `recovery/app.bin` and `recovery/boot_update.bin` from this site, checks
+their size and sha256 against `recovery/manifest.json`, and runs the same validators as a picked
+file before any USB traffic. `app.bin` is the default-settings build from the firmware workflow
+(`b11926ea…`); `boot_update.bin` is the alt 2 package for `smcpad-boot 0108` (`13015215…`).
+`recovery/README.md` documents how to regenerate both, and `host/tests/test_webui.py` pins them
+so they cannot drift unnoticed. The factory image is device data and is never published.
+
 ## Safety
 
 - Only `1209:0001` (app) and `1209:0002` (bootloader) are recognised; device choosers are
   filtered to those ids. `.fwsc` containers and files of 512 KiB or more are refused before
   any write.
 - Only the DFU alt the operation needs is written: alt 0 for app restores, alt 2 for a
-  bootloader update, alt 1 never.
+  bootloader update, alt 1 never. The Debrick tab adds no other write path; its ROM-mode section
+  is instructions for the host tools, because the browser cannot reach that device.
 - One operation at a time; reads can be cancelled, writes run to completion or leave the pad
   in the bootloader.
 - No server is involved: the page is plain static files from GitHub Pages. The optional

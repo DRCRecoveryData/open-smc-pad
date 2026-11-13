@@ -34,6 +34,7 @@ MAX_UPLOAD = 512 * 1024
 STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "index.html")
 STATIC_JS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "smcpad.js")
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+RECOVERY_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recovery")
 BUILD_DIR = os.path.join(device.ROOT, "work", "webui", "build", "MidiFighterSpectra")
 LOCKFILE = os.path.join(device.ROOT, "work", "webui", "server.lock")
 
@@ -605,6 +606,21 @@ class Handler(BaseHTTPRequestHandler):
                              mimetypes.guess_type(fpath)[0] or "application/octet-stream")
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "max-age=3600")
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        m = re.fullmatch(r"/recovery/([A-Za-z0-9._-]+\.(?:bin|json))", path)
+        if m:
+            fpath = os.path.join(RECOVERY_DIR, m.group(1))
+            if not os.path.isfile(fpath):
+                return self.send_error_json(404, "not found")
+            with open(fpath, "rb") as f:
+                body = f.read()
+            self.send_response(200)
+            self.send_header("Content-Type",
+                             mimetypes.guess_type(fpath)[0] or "application/octet-stream")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(body)
             return

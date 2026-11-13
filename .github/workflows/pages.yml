@@ -24,9 +24,10 @@ jobs:
       - uses: actions/checkout@v4
       - name: Assemble the site
         run: |
-          mkdir -p _site/static
+          mkdir -p _site/static _site/recovery
           cp host/webui/index.html host/webui/smcpad.js _site/
           cp host/webui/static/*.png _site/static/
+          cp host/webui/recovery/*.bin host/webui/recovery/manifest.json _site/recovery/
           touch _site/.nojekyll
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
