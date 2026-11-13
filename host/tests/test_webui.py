@@ -79,7 +79,7 @@ class RecoveryAssetsTest(unittest.TestCase):
 
     PINNED = {
         "app.bin": (149128, "b11926ea0d01b9ad524d559d6e8b067c913bd22fb518c54bacac8079d638b824"),
-        "boot_update.bin": (28672, "130152157ed0513fbba7ec2dd3b1db42eadfd83642f5cf8e4dad7f4c5e2b08f4"),
+        "boot_update.bin": (28672, "b5a5c951158ce4cdfd2005aabf8236706c19325f95b1700ab653da96e1585ae0"),
     }
 
     def test_manifest_matches_the_pins(self):

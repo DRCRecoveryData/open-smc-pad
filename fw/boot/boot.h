@@ -49,6 +49,14 @@ struct boot_diag {
 #define BOOT_COUNT_CHECK    0x5A5AB007u
 #define BOOT_CRASH_LIMIT    3u          /* the 4th boot in a row that was never confirmed: DFU */
 
+/* Watchdog-reset streak, for an application that hangs after it confirmed its boot (the
+ * crash counter above only sees start-ups). Packed into the one free word of the retained
+ * block: 0x31AC8/0x31AD0 belong to the installer, 0x31AD8 to the crash counter. The tag in
+ * the high half makes power-up RAM read as no streak. */
+#define BOOT_WDT            (*(volatile u32 *)0x31AD4u)
+#define BOOT_WDT_TAG        0xA5A50000u /* | count, low 8 bits */
+#define BOOT_WDT_LIMIT      3u          /* the 4th watchdog reset in a row: DFU */
+
 /* Held at power-up: stay in the bootloader. Columns of the key matrix, sense line 1 (PC1):
  * 0 shift, 1 note repeat, 2 bluetooth, 3 pad bank, 4 knob bank, 5 left, 6 right, 7 play,
  * 8 rec, 9 pause (docs/hardware.md). */
@@ -61,12 +69,18 @@ struct boot_diag {
 #define DFU_REASON_KEYS     3u          /* shift + play held at power-up */
 #define DFU_REASON_CRASH    4u          /* the application kept resetting before confirming */
 #define DFU_REASON_BAD_CRC  5u          /* the application area does not match its CRC */
+#define DFU_REASON_WDT      6u          /* the application kept hanging: watchdog resets */
 
 /* Mask ROM (addresses from the SDK's sdk.ld). */
 #define ROM_CHIP_RESET      ((void (*)(u32, u32))0x117fccu)
 #define ROM_IRQ_DISABLE     ((void (*)(void))0x117d44u)
 #define ROM_P33_OR_1BYTE    ((void (*)(u32, u32))0x117d54u)
+#define ROM_P33_RX_1BYTE    ((u8 (*)(u32))0x117d5cu)
 #define ROM_SFC_RESUME      ((void (*)(u32))0x117fb0u)
+
+/* P3_RST_SRC (P33 register 0x12): bit 2 is a watchdog reset (the other bits are POR, LVD,
+ * VCM, pin, system and soft resets, per the SDK's power_reset_source_dump()). */
+#define RST_SRC_WDT         0x04u
 
 /* JLFS2 directory entry (32 bytes). */
 #define DIR_HDR_CRC         0
@@ -79,7 +93,7 @@ struct boot_diag {
  * unconfigured until the user approves it -- bcdDevice 0x0104 kept the updated bootloader
  * invisible to dfu-util. The descriptors stay the same forever (bcdDevice 0x0100); the
  * version is read through DFU alt 2: dfu-util -a 2 -U <file>. */
-#define BOOT_VERSION        0x0108
+#define BOOT_VERSION        0x0109
 
 /* Installer slot + staging area (fw/boot/install.c), used to install the bootloader from the
  * stock firmware and to update it from the bootloader itself (DFU alt 2). The uboot maps a

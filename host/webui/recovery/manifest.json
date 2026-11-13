@@ -6,8 +6,8 @@
   },
   "boot_update.bin": {
     "size": 28672,
-    "sha256": "130152157ed0513fbba7ec2dd3b1db42eadfd83642f5cf8e4dad7f4c5e2b08f4",
-    "label": "smcpad-boot 0108 update package",
-    "version": "0108"
+    "sha256": "b5a5c951158ce4cdfd2005aabf8236706c19325f95b1700ab653da96e1585ae0",
+    "label": "smcpad-boot 0109 update package",
+    "version": "0109"
   }
 }

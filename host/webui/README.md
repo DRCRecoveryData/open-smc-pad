@@ -82,7 +82,7 @@ workflow yourself.
 The Debrick tab fetches `recovery/app.bin` and `recovery/boot_update.bin` from this site, checks
 their size and sha256 against `recovery/manifest.json`, and runs the same validators as a picked
 file before any USB traffic. `app.bin` is the default-settings build from the firmware workflow
-(`b11926ea…`); `boot_update.bin` is the alt 2 package for `smcpad-boot 0108` (`13015215…`).
+(`b11926ea…`); `boot_update.bin` is the alt 2 package for `smcpad-boot 0109` (`b5a5c951…`).
 `recovery/README.md` documents how to regenerate both, and `host/tests/test_webui.py` pins them
 so they cannot drift unnoticed. The factory image is device data and is never published.
 

@@ -84,14 +84,26 @@ bootloader stays in DFU mode when:
   word, so power-up RAM reads as 0); the application clears it after ~3 s of running
   (`smcpad_boot_ok()` in the console; the Arduino core must do the same). The 4th boot in a
   row that was never confirmed stays in DFU mode. Verified with quick `Z` resets: reason 4;
+- **the application hangs after it confirmed its boot**: the crash counter is cleared from
+  then on, so nothing else would notice a hang, but the SDK arms the watchdog for 8 s
+  (`wdt_init(WDT_8S)` in the br25 setup) and a watchdog reset is a distinguishable source:
+  `P3_RST_SRC` (P33 register 0x12) bit 2, read through the ROM's `p33_rx_1byte` after the
+  same `p33_or_1byte(0x31, 0x40)` the SDK's `power_reset_source_dump()` does first. The
+  bootloader counts them in the one free word of the retained block, 0x31AD4 (tag `0xA5A5`
+  in the high half, so power-up RAM reads as no streak), and the 4th in a row stays in DFU
+  mode, reason 6. Any other reset -- power-up, the 1200-baud touch, a crash loop, the DFU
+  mode's own reboot -- clears the streak, and the application cannot clear it;
 - **the application area fails its CRC** (the whole area against the directory's data_crc,
   table-free CRC16 in `.start`, a few tens of ms at boot).
 
 In DFU mode the SHIFT button's LED blinks (SK12; the Pocket has no button LEDs, so DFU there
 is only the USB device). The reason is in the diagnostics (`boot.magic`
-low digit: 1 asked, 2 no app, 3 keys, 4 crash loop, 5 bad CRC).
+low digit: 1 asked, 2 no app, 3 keys, 4 crash loop, 5 bad CRC, 6 watchdog loop).
 
 Still open:
+- the watchdog loop (reason 6) is built and its code checked, but not yet seen on the pad:
+  that a watchdog reset leaves `P3_RST_SRC` bit 2 set until the bootloader reads it (and that
+  reading it is harmless) needs a hang induced on hardware, after flashing the 0109 package.
 - block-protecting 0x0..0x8000 in the flash status register. Measured (console `S`): with our
   SDK application running SR1 = SR2 = 0, i.e. nothing is protected (the SDK's "protection below
   vm_saddr" is a software check, not the BP bits). Setting BP from the bootloader needs the BP
@@ -107,14 +119,15 @@ Still open:
 
 ## Boot decision (fw/boot/boot.c, runs in place from flash)
 
-The factory uboot jumps to the bootloader's entry with r0 = `BOOT_DEVICE_INFO *`. Before
-touching any hardware:
+The factory uboot jumps to the bootloader's entry with r0 = `BOOT_DEVICE_INFO *`. In order,
+with the pins untouched until the hand-off (the watchdog check only reads the P33 reset-source
+registers):
 
 - `BOOT_MAGIC_DFU` (0xB007DF00) at `0x31AE0` (the SDK's UPDATA_BEG, kept across a chip reset)
   -> clear it, DFU mode. The application sets it for the console's `B` and the 1200-baud touch.
 - no valid directory at 0x9000 (header CRC, entry = 0x1E08120, size within the area), a crash
-  loop, or a failed area CRC -> DFU mode (see "Hardening"). SHIFT + PLAY held also does, on the
-  SK12 board that has them (the Pocket has only pads);
+  loop, a watchdog loop, or a failed area CRC -> DFU mode (see "Hardening"). SHIFT + PLAY held
+  also does, on the SK12 board that has them (the Pocket has only pads);
 - otherwise hand over.
 
 **Handing over** = what the uboot does for a directory elsewhere: the SDK walks its directory at

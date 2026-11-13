@@ -30,8 +30,9 @@ binaries. This is for changing the bootloader, the drivers or the runtime API.
 
 The bootloader starts the application unless: it was asked to stay (1200-baud touch on the
 serial port, as Arduino boards do), there is no valid application, the application's CRC fails,
-it crashed four times in a row in its first three seconds, or **SHIFT + PLAY** are held at power
-on. The button combo is for the SK12 reference board, which has them; the Pocket has only the
+it crashed four times in a row in its first three seconds, it hung four times in a row after
+confirming its boot (the SDK's 8 s watchdog resets it, and the bootloader counts those resets),
+or **SHIFT + PLAY** are held at power on. The button combo is for the SK12 reference board, which has them; the Pocket has only the
 16 pads, so it is asked through the 1200-baud touch (the web UI's **Reboot into DFU**). Then it
 is a DFU device: `dfu-util -d 1209:0002 -a 0 -D app.bin`. Alternate 1 reads flash,
 alternate 2 takes a bootloader update (written to a staging area, verified, then installed by a

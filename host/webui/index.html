@@ -355,7 +355,8 @@
             <span class="mono">1209:0002</span>. (The SK12 reference board can also be
             powered on with <b>SHIFT + PLAY</b> held; its SHIFT LED then blinks.)</li>
           <li>An application that crash-loops is caught by the bootloader after four
-            unconfirmed boots; a failed application CRC keeps it in DFU the same way.</li>
+            unconfirmed boots, and one that hangs is caught by its 8&nbsp;s watchdog after
+            four resets in a row; a failed application CRC keeps it in DFU the same way.</li>
           <li>If the application still runs, this page can reboot it into the bootloader
             (Reboot into DFU, or any backup/restore).</li>
           <li>Chrome asks once per profile for the DFU device: use
@@ -1074,7 +1075,7 @@ function renderDebrickState() {
   $("#debrick-state-text").textContent = busy
     ? "An operation is running; the state refreshes when it finishes."
     : mode === "dfu"
-      ? "The bootloader is running; the application area is missing, corrupt or crash-looping. " +
+      ? "The bootloader is running; the application area is missing, corrupt, crash-looping or hanging. " +
         "Restore the shipped application below — the bootloader checks it and writes its " +
         "directory last."
       : mode === "app"

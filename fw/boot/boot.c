@@ -14,8 +14,10 @@
  *
  * Otherwise the DFU mode starts: BOOT_MAGIC_DFU left by the application, no valid application,
  * shift + play held at power-up, a crash loop (BOOT_CRASH_LIMIT boots in a row the application
- * never confirmed), or an application area that fails its CRC. The last three are what keeps a
- * broken application from locking the pad out of USB. The DFU mode then starts: everything else of the bootloader is linked to run from RAM (boot.ld), copied
+ * never confirmed), BOOT_WDT_LIMIT watchdog resets in a row (the application hangs after it
+ * confirmed its boot), or an application area that fails its CRC. The last four are what keeps
+ * a broken application from locking the pad out of USB. The DFU mode then starts: everything
+ * else of the bootloader is linked to run from RAM (boot.ld), copied
  * there from here, and from then on the flash is only data.
  *
  * Everything in this file lives in .start and must call nothing outside it: until the copy,
@@ -192,6 +194,37 @@ START static void crash_count_clear(void)
 {
     BOOT_COUNT[0] = 0;
     BOOT_COUNT[1] = 0;
+    BOOT_WDT = 0;
+}
+
+/* ------------------------------------------------------------ hung application at the watchdog
+ * The 8 s watchdog (the SDK's wdt_init(WDT_8S)) resets a hung application; nothing else can
+ * notice a hang once the application has confirmed its boot, because the crash counter above
+ * is cleared from then on. A watchdog reset is a distinguishable source, so count them: four
+ * in a row, with no reset of another kind in between, are a hang. The application cannot and
+ * must not clear this -- a power-up, the 1200-baud touch (`B`), a crash or the DFU mode's own
+ * reboot are not WDT resets and reset the streak. */
+START static u32 reset_source(void)
+{
+    if (ROM_P33_RX_1BYTE(0x31) & 0x80)      /* returned from power-down: no new source latched */
+        return 0;
+    ROM_P33_OR_1BYTE(0x31, 0x40);           /* what power_reset_source_dump() does before reading */
+    return ROM_P33_RX_1BYTE(0x12);
+}
+
+START static int wdt_loop(u32 rst)
+{
+    u32 w = BOOT_WDT, n;
+
+    if ((w & 0xFFFF0000u) != BOOT_WDT_TAG)
+        w = BOOT_WDT_TAG;                   /* power-up RAM */
+    if (!(rst & RST_SRC_WDT)) {
+        BOOT_WDT = BOOT_WDT_TAG;            /* some other reset: not a watchdog loop */
+        return 0;
+    }
+    n = (w & 0xFFu) + 1u;
+    BOOT_WDT = BOOT_WDT_TAG | n;
+    return n > BOOT_WDT_LIMIT;
 }
 
 /* r0 = info, r1 = entry: enter the application with r0 as the uboot would pass it. */
@@ -245,6 +278,8 @@ void boot_main(struct boot_device_info *info)
         reason = DFU_REASON_KEYS;
     } else if (crash_loop()) {
         reason = DFU_REASON_CRASH;
+    } else if (wdt_loop(reset_source())) {
+        reason = DFU_REASON_WDT;
     } else if (!app_intact()) {
         reason = DFU_REASON_BAD_CRC;
         valid = 0;                          /* not worth going back to */

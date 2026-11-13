@@ -6,11 +6,11 @@ the same validators as a file picked on the Restore/Upload tabs before any USB t
 | file | size | sha256 |
 |---|---|---|
 | `app.bin` | 149128 | `b11926ea0d01b9ad524d559d6e8b067c913bd22fb518c54bacac8079d638b824` |
-| `boot_update.bin` | 28672 | `130152157ed0513fbba7ec2dd3b1db42eadfd83642f5cf8e4dad7f4c5e2b08f4` |
+| `boot_update.bin` | 28672 | `b5a5c951158ce4cdfd2005aabf8236706c19325f95b1700ab653da96e1585ae0` |
 
 `app.bin` is the application area built by `.github/workflows/firmware.yml` with default
 settings; this copy is the byte-identical read-back of the flashed artifact. `boot_update.bin`
-is the DFU alt 2 package for `smcpad-boot 0108` (`BOOT_VERSION` in `fw/boot/boot.h`).
+is the DFU alt 2 package for `smcpad-boot 0109` (`BOOT_VERSION` in `fw/boot/boot.h`).
 
 ## Regenerating
 

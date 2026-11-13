@@ -101,7 +101,8 @@ fetches the JieLi compiler from JieLi). More in [arduino/README.md](arduino/READ
 > [fw/README.md](fw/README.md#building)). To go back to the
 > factory firmware you need the recovery path below — keep that in mind.
 
-**Recovery.** The bootloader goes to DFU by itself after a firmware crashes four times at start,
+**Recovery.** The bootloader goes to DFU by itself after a firmware crashes four times at start
+or hangs four times in a row (the 8 s watchdog resets it, and those resets are counted),
 and it updates itself through a staging area, so a cut power never leaves the pad without one.
 The [web UI](host/webui)'s Debrick tab covers every state the bootloader can reach: it restores
 the shipped default-settings application, flashes the bootloader package, and explains how to
