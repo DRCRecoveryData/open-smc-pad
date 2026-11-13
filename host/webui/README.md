@@ -6,11 +6,10 @@ Spectra-firmware builds from your settings.
 It runs entirely in the browser — nothing needs to be installed or running on the computer
 except Chrome:
 
-<https://drcrecoverydata.github.io/smcpad-webui/>
+<https://drcrecoverydata.github.io/open-smc-pad/>
 
-The source repo is private, so the published copy lives in the public
-`DRCRecoveryData/smcpad-webui`; `host/webui/publish_pages.sh` updates it, and a GitHub
-Actions workflow there rebuilds and deploys Pages on every push.
+It is served straight from this repository: `.github/workflows/pages.yml` assembles
+`host/webui` and deploys it to GitHub Pages on every push that touches it.
 
 **Chrome, Edge or another Chromium browser is required.** The page uses WebUSB, Web Serial
 and Web MIDI to reach the pad; Firefox and Safari implement none of them and show a warning
