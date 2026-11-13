@@ -6,7 +6,7 @@ Spectra-firmware builds from your settings.
 It runs entirely in the browser — nothing needs to be installed or running on the computer
 except Chrome:
 
-<https://drcrecoverydata.github.io/open-smc-pad/>
+<https://drcrecoverydata.github.io/open-smc-pad-pocket/>
 
 It is served straight from this repository: `.github/workflows/pages.yml` assembles
 `host/webui` and deploys it to GitHub Pages on every push that touches it.
