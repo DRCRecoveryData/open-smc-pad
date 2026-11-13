@@ -36,6 +36,18 @@ STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 BUILD_DIR = os.path.join(device.ROOT, "work", "webui", "build", "MidiFighterSpectra")
 LOCKFILE = os.path.join(device.ROOT, "work", "webui", "server.lock")
 
+# The GitHub Pages copy of index.html may call this server; everything else stays refused.
+PAGES_ORIGINS = {o.strip().rstrip("/") for o in os.environ.get(
+    "SMCPAD_WEBUI_ORIGINS", "https://drcrecoverydata.github.io").split(",") if o.strip()}
+
+
+def allowed_origins(port):
+    return {f"http://127.0.0.1:{port}", f"http://localhost:{port}"} | PAGES_ORIGINS
+
+
+def origin_allowed(origin, port):
+    return not origin or origin in allowed_origins(port)
+
 DEVICE_LOCK = threading.Lock()
 STATE_LOCK = threading.Lock()
 JOBS = {}
@@ -497,20 +509,41 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def cors_origin(self):
+        origin = self.headers.get("Origin")
+        return origin if origin and origin_allowed(origin, self.server.server_address[1]) else None
+
+    def end_headers(self):
+        origin = self.cors_origin()
+        if origin:
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
+        super().end_headers()
+
     def send_error_json(self, code, msg, **extra):
         self.send_json(code, {"error": msg, **extra})
 
     def same_origin(self):
         origin = self.headers.get("Origin")
         if origin:
-            port = self.server.server_address[1]
-            allowed = {f"http://127.0.0.1:{port}", f"http://localhost:{port}"}
-            if origin not in allowed:
+            if origin not in allowed_origins(self.server.server_address[1]):
                 return False
+            return True
         site = self.headers.get("Sec-Fetch-Site")
         if site and site not in ("same-origin", "none"):
             return False
         return True
+
+    def do_OPTIONS(self):
+        if not self.cors_origin():
+            return self.send_error_json(403, "cross-origin request refused")
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Filename")
+        self.send_header("Access-Control-Max-Age", "600")
+        if self.headers.get("Access-Control-Request-Private-Network"):
+            self.send_header("Access-Control-Allow-Private-Network", "true")
+        self.end_headers()
 
     def body_json(self):
         try:

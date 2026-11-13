@@ -140,7 +140,18 @@
 
 <main>
   <section id="tab-status" class="tab active">
-    <div class="card"><img class="hero" src="/static/hero.png" alt="SMC-PAD Pocket pad grid"></div>
+    <div class="card" id="server-card" hidden>
+      <h2>Local server</h2>
+      <div class="row">
+        <input id="server-url" class="mono" spellcheck="false" autocomplete="off"
+               style="flex:1;min-width:280px" aria-label="Local server address">
+        <button id="server-connect" class="small">Connect</button>
+      </div>
+      <p class="note">This copy is hosted on GitHub; the buttons only work while
+        <code>python3 host/webui/server.py</code> runs on the machine with the pad. Requests go
+        to the address above and nowhere else.</p>
+    </div>
+    <div class="card"><img class="hero" src="static/hero.png" alt="SMC-PAD Pocket pad grid"></div>
     <div class="grid2">
       <div class="card">
         <h2>Device</h2>
@@ -155,7 +166,7 @@
       </div>
       <div class="card">
         <h2>Your pad</h2>
-        <img class="shot" src="/static/device.png" alt="SMC-PAD Pocket">
+        <img class="shot" src="static/device.png" alt="SMC-PAD Pocket">
         <p class="note">16 RGB pads, one ring each. Lights tab drives them live; Settings
           rebuilds the Spectra firmware with your options.</p>
       </div>
@@ -354,6 +365,8 @@
 <script>
 "use strict";
 const $ = (s) => document.querySelector(s);
+let API_BASE = "";
+const apiUrl = (path) => API_BASE + path;
 let status = null, files = { backups: [], artifacts: {} };
 let jobId = null, jobSince = 0, jobTimer = null, idleTimer = null, lightsTimer = null;
 let appUploadId = null, bootUploadId = null;
@@ -367,7 +380,7 @@ const GATE_CYCLES = [16, 8, 4, 2, 1, 0.5, 0.25, 0.125];
 const PULSE_CYCLES = [32, 16, 8, 4, 2, 1, 0.5, 0.125];
 
 async function api(path, opts = {}) {
-  const r = await fetch(path, opts);
+  const r = await fetch(apiUrl(path), opts);
   let body = null;
   try { body = await r.json(); } catch (e) { body = null; }
   if (!r.ok) {
@@ -438,7 +451,7 @@ function renderFiles(f) {
     }
     const dl = document.createElement("td");
     const a = document.createElement("a");
-    a.href = "/api/files/download?name=" + encodeURIComponent(b.name);
+    a.href = apiUrl("/api/files/download?name=") + encodeURIComponent(b.name);
     const btn = document.createElement("button");
     btn.className = "small"; btn.textContent = "Download";
     a.append(btn); dl.append(a); tr.append(dl);
@@ -488,7 +501,7 @@ function renderFiles(f) {
     }
     const dl = document.createElement("td");
     const a = document.createElement("a");
-    a.href = "/api/files/download?name=" + encodeURIComponent(b.name);
+    a.href = apiUrl("/api/files/download?name=") + encodeURIComponent(b.name);
     const btn = document.createElement("button");
     btn.className = "small"; btn.textContent = "Download";
     a.append(btn); dl.append(a); tr.append(dl);
@@ -815,7 +828,7 @@ function trackJob(id) {
         if (j.job.result && j.job.result.file &&
             (j.job.op === "backup_app" || j.job.op === "backup_full")) {
           const a = document.createElement("a");
-          a.href = `/api/jobs/${id}/download`;
+          a.href = apiUrl(`/api/jobs/${id}/download`);
           a.className = "small";
           const b = document.createElement("button");
           b.className = "small"; b.textContent = "Download " + j.job.result.file;
@@ -891,7 +904,7 @@ $("#file").onchange = async (ev) => {
   $("#file-info").textContent = "checking " + f.name + "…";
   $("#file-info").className = "note";
   try {
-    const r = await fetch("/api/upload?kind=app", {
+    const r = await fetch(apiUrl("/api/upload?kind=app"), {
       method: "POST",
       headers: { "Content-Type": "application/octet-stream", "X-Filename": f.name },
       body: f
@@ -923,7 +936,7 @@ $("#boot-file").onchange = async (ev) => {
   if (!f) return;
   $("#boot-file-info").textContent = "checking " + f.name + "…";
   try {
-    const r = await fetch("/api/upload?kind=boot", {
+    const r = await fetch(apiUrl("/api/upload?kind=boot"), {
       method: "POST",
       headers: { "Content-Type": "application/octet-stream", "X-Filename": f.name },
       body: f
@@ -1035,12 +1048,33 @@ window.addEventListener("hashchange", () =>
   activateTab(location.hash.slice(1) || "status"));
 
 /* boot */
+async function detectServer() {
+  let local = false;
+  try { local = (await fetch("/api/status", { cache: "no-store" })).ok; } catch (e) {}
+  if (!local) {
+    API_BASE = localStorage.getItem("smcpad-api") || "http://127.0.0.1:8765";
+    $("#server-card").hidden = false;
+    $("#server-url").value = API_BASE;
+  }
+  return !local;
+}
+async function boot() {
+  await detectServer();
+  refreshStatus(); refreshFiles(); refreshSettings();
+  api("/api/lights").then(r => { renderLights(r.lights); buildPalette(r.lights.palette); })
+                   .catch(() => {});
+}
+$("#server-connect").onclick = () => {
+  try { API_BASE = new URL($("#server-url").value.trim()).origin; }
+  catch (e) { API_BASE = "http://127.0.0.1:8765"; }
+  $("#server-url").value = API_BASE;
+  localStorage.setItem("smcpad-api", API_BASE);
+  boot();
+};
 buildPadGrid();
 fillAnimLevels();
 activateTab(location.hash.slice(1) || "status");
-refreshStatus(); refreshFiles(); refreshSettings();
-api("/api/lights").then(r => { renderLights(r.lights); buildPalette(r.lights.palette); })
-                 .catch(() => {});
+boot();
 scheduleIdle();
 </script>
 </body>

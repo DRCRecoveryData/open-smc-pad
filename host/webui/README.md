@@ -6,6 +6,15 @@ Spectra firmware with your settings.
     python3 host/webui/server.py            # http://127.0.0.1:8765/
     python3 host/webui/server.py --offline  # UI only, no device access
 
+The same page is also published on GitHub Pages at
+<https://drcrecoverydata.github.io/open-smc-pad/>. Pages cannot reach the pad, so from there
+the Status tab shows a **Local server** address field and every request goes to
+`http://127.0.0.1:8765` — run the server above on the machine with the pad and the GitHub
+copy controls it just like the local one. The server echoes CORS headers only for the Pages
+origin (override with `SMCPAD_WEBUI_ORIGINS=https://user.github.io`) and for itself, answers
+preflights including Private Network Access, and still binds 127.0.0.1 only. Pages deploys
+on every change under `host/webui/` (`.github/workflows/pages.yml`).
+
 It talks to `1209:0002` with `dfu-util` and never writes sector 0:
 
 - **Backup application** — DFU alt 0 read: the app area (directory + app.bin + cfg).
@@ -49,5 +58,6 @@ full-size board; DFU in `lsusb`), no touch is needed.
   anything else is left alone. `.fwsc` containers and >512 KiB files are refused.
 - App images are checked before any write: directory head CRC, entry `0x1E08120`, size
   range and the app-area CRC.
-- One operation at a time; the page binds to 127.0.0.1 and rejects cross-origin POSTs.
+- One operation at a time; the page binds to 127.0.0.1 and rejects POSTs from any origin
+  other than itself and the Pages copy.
 - Tests: `python3 host/tests/test_webui.py` (offline).

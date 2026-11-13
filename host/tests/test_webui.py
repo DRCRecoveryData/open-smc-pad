@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
                                 "webui"))
 import device  # noqa: E402
 import lights  # noqa: E402
+import server  # noqa: E402
 import settings as smcpad_settings  # noqa: E402
 
 GOOD_APP = os.path.join(device.ROOT, "work", "sketch", "MidiFighterSpectra",
@@ -170,6 +171,28 @@ class LightsTest(unittest.TestCase):
         self.assertEqual(events, [(0x92, 0x24, 0x43), (0x92, 0x24, 0x00)])
         self.assertEqual(buf, b"")
         self.assertEqual(lights._hits(events, 3), [(0, True), (0, False)])
+
+
+class OriginTest(unittest.TestCase):
+    def test_pages_origin_is_allowed(self):
+        self.assertTrue(server.origin_allowed("https://drcrecoverydata.github.io", 8765))
+
+    def test_local_origins_are_allowed(self):
+        self.assertTrue(server.origin_allowed("http://127.0.0.1:8765", 8765))
+        self.assertTrue(server.origin_allowed("http://localhost:8765", 8765))
+        self.assertTrue(server.origin_allowed(None, 8765))
+
+    def test_other_origins_are_refused(self):
+        for origin in ("https://evil.example", "http://127.0.0.1:9999",
+                       "https://drcrecoverydata.github.io.evil.example"):
+            self.assertFalse(server.origin_allowed(origin, 8765), origin)
+
+    def test_pages_origin_is_configurable(self):
+        import importlib
+        with mock.patch.dict(os.environ, {"SMCPAD_WEBUI_ORIGINS": "https://example.test"}):
+            self.assertIn("https://example.test",
+                          importlib.reload(server).allowed_origins(8765))
+        importlib.reload(server)  # restore the default for the other tests
 
 
 if __name__ == "__main__":
