@@ -42,7 +42,9 @@ user is not in `dialout`.
 
 ## Use
 
-Same as the Pico: open the console, send `r` (or replug the S3), wait for `D+ low: keying.`,
-then power the pad on. `x` aborts, `d` sends SE0 for 300 ms, `t` checks the tap with the pad
-off, `p` probes both lines, `k` holds D+ high for 30 ms. See
-[`docs/flash-layout.md`](../../docs/flash-layout.md) for the full procedure and pitfalls.
+Same as the Pico, except that the sketch does not key at boot: it idles on the bus, so the pad
+can stay wired up permanently and only a keyed attempt touches the data lines. Open the
+console, send `r`, wait for `D+ low: keying.`, then power the pad on. `x` aborts, `d` sends SE0
+for 300 ms, `t` checks the tap with the pad off, `p` probes both lines, `k` holds D+ high for
+30 ms. See [`docs/flash-layout.md`](../../docs/flash-layout.md) for the full procedure and
+pitfalls.

@@ -5,6 +5,7 @@ fw/smcpad/out/
 fw/smcpad/usb/smcpad_usb_build.h
 hw/jl-usbkey/build/
 hw/jl-usbkey/build-zero/
+hw/jl-s3-bridge/build/
 host/bridge-rs/target/
 host/.venv*/
 __pycache__/

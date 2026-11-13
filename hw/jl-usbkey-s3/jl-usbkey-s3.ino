@@ -14,10 +14,12 @@
 // so compile with "USB CDC On Boot: Disabled" (the default for esp32:esp32:esp32s3) and leave
 // the native USB port unused.
 //
-// Use: open the serial monitor on the UART port, then power on the SMC-PAD. The on-board RGB
-// LED (WS2812, GPIO48 on DevKitC-1 v1.0, GPIO38 on v1.1; both are driven, so either revision
-// lights): blue blink = keying, solid green = the chip took the USB_KEY, red blink = timed out.
-// Send 'r' over the console to start an attempt; 'x' aborts one; 'd' replugs the pad as far as
+// Use: open the serial monitor on the UART port. Nothing is keyed at boot, so the pad can stay
+// wired to the bus permanently; send 'r' to start an attempt, then power the SMC-PAD on. The
+// on-board RGB LED (WS2812, GPIO48 on DevKitC-1 v1.0, GPIO38 on v1.1; both are driven, so
+// either revision lights): blue blink = keying, solid green = the chip took the USB_KEY, red
+// blink = timed out.
+// 'x' aborts an attempt; 'd' replugs the pad as far as
 // the host can tell; 't' checks with the pad off whether the data lines really reach the
 // computer; 'k' pulses D+ high for 30 ms; 'p' probes both lines.
 
@@ -275,9 +277,11 @@ static void replug() {
 
 void setup() {
   releaseBus();
+  statusRGB(0, 0, 0);
   Serial.begin(115200);
   delay(1500);
-  runAttempt();
+  Serial.println("Idle: no automatic keying. Send 'r' to key, 't' line check, 'p' probe, "
+                 "'d' replug, 'k' connect test.");
 }
 
 void loop() {

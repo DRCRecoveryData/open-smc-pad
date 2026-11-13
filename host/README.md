@@ -11,6 +11,7 @@ each one says what it needs at the top.
 | `dfu_flash.sh` | send a firmware to the bootloader (`--bootloader`: update the bootloader itself) |
 | `midi_monitor.py` | print what the pad sends; optionally send it MIDI clock or Mackie LED messages |
 | `core_test.sh`, `core_test.py` | build, upload and run the Arduino core's self-test, and check its BLE advertising |
+| `s3_relay.py`, `s3_bringup.sh` | keep the pad on an ESP32-S3 USB host: virtual MIDI ports and a SCSI socket for jl-uboot-tool over the S3's UART ([docs/s3-bridge.md](../docs/s3-bridge.md)) |
 
 **Building and packaging**
 

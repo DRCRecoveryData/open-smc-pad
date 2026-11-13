@@ -78,7 +78,9 @@ The firmware replaces the stock one in the app area; sector 0 / uboot stay facto
    [`hw/jl-usbkey-s3`](../hw/jl-usbkey-s3) (GPIO4 to D+, GPIO5 to D-, GND), console on its
    UART USB-C port (the CP210x one, `Serial` = UART0). Its second USB-C port does not remove
    the tap: the pad still enumerates on the computer, so the S3 sits in parallel on the data
-   lines just like the Pico.
+   lines just like the Pico. To drop the parallel tap entirely, [`hw/jl-s3-bridge`](../hw/jl-s3-bridge)
+   makes the S3 the USB host instead and relays both MIDI and the download-mode SCSI commands
+   over that UART ([docs/s3-bridge.md](s3-bridge.md)).
 4. Once per machine: build and install the root helper (see below).
 5. `host/flash_fw.sh` — or `host/flash_fw.sh stock` to put the factory firmware back. **Runs as
    you, no password.** If our firmware is running it enters download mode by itself; otherwise it
