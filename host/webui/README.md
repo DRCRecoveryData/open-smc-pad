@@ -26,6 +26,11 @@ Chrome asks once per browser profile for each device:
   This grants access for all later writes and backups.
 - **MIDI** — grant the MIDI permission when the browser asks; it is needed for the Lights tab.
 
+On the very first DFU operation the page sends the 1200-baud touch, the pad reboots into
+the bootloader, and the operation stops because Chrome still needs the chooser. Pick
+**Select DFU device** while the pad shows the bootloader (it stays there), then run the
+operation again. Later operations reuse the grant.
+
 On Linux the desktop's uaccess ACL usually covers the pads; if Chrome cannot open the device,
 install the one-time udev rules and power-cycle the pad:
 
